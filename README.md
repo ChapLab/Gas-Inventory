@@ -38,9 +38,3 @@ Keep the same Web App URL.
 - Camera scans are now buffered for 0.5 seconds.
 - The app collects up to 5 reads at roughly 0.1 second intervals.
 - It chooses the most repeated barcode; if tied, it uses the longest raw read to avoid partial barcode reads.
-
-
-## v16 changes
-- After a barcode is accepted and the form opens, scanning pauses.
-- The camera stays open, but new barcode reads are ignored while the form is active.
-- Scanning resumes after saving the form or tapping Clear form.
