@@ -13,6 +13,10 @@ var scanStartTime=0;
 var scanBufferTimer=null;
 var scanCollecting=false;
 var scanPaused=false;
+var photoImage=null;
+var photoTransform={x:0,y:0,scale:1,rotation:0};
+var photoPointers=new Map();
+var photoLastGesture=null;
 
 const el=id=>document.getElementById(id);
 const normBarcode=value=>String(value||"").trim().replace(/[^a-zA-Z0-9]/g,"").toUpperCase();
@@ -76,6 +80,12 @@ function bindEvents(){
   });
   on("addTankBtn","click",addTankFromForm);
   on("downloadCsvBtn","click",downloadCsv);
+  on("photoBarcodeInput","change",handlePhotoBarcodeInput);
+  on("photoRotateLeftBtn","click",()=>rotatePhoto(-90));
+  on("photoRotateRightBtn","click",()=>rotatePhoto(90));
+  on("photoResetBtn","click",resetPhotoView);
+  on("photoScanBtn","click",scanPhotoRoi);
+  setupPhotoTouchEvents();
 }
 
 function loadSettings(){
@@ -722,7 +732,7 @@ function startScanner(){
 
   scanner=new Html5QrcodeScanner("reader",{
     fps:10,
-    qrbox:(viewfinderWidth, viewfinderHeight)=>{ return {width:Math.floor(viewfinderWidth*0.5), height:Math.floor(viewfinderHeight*0.2)}; },
+    qrbox:(viewfinderWidth, viewfinderHeight)=>{ return {width:Math.floor(viewfinderWidth*0.25), height:Math.floor(viewfinderHeight*0.10)}; },
     rememberLastUsedCamera:true,
     supportedScanTypes:[Html5QrcodeScanType.SCAN_TYPE_CAMERA],
     formatsToSupport:[
@@ -822,6 +832,128 @@ function escapeAttr(str){
   return escapeHtml(str).replaceAll("`","&#096;");
 }
 
+
+
+function setupPhotoTouchEvents(){
+  const canvas=el("photoCanvas");
+  if(!canvas)return;
+  canvas.addEventListener("pointerdown",e=>{
+    if(!photoImage)return;
+    canvas.setPointerCapture(e.pointerId);
+    photoPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    photoLastGesture=getPhotoGesture();
+  });
+  canvas.addEventListener("pointermove",e=>{
+    if(!photoImage||!photoPointers.has(e.pointerId))return;
+    photoPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const gesture=getPhotoGesture();
+    if(!gesture||!photoLastGesture){photoLastGesture=gesture;return;}
+    if(photoPointers.size===1){
+      photoTransform.x += gesture.cx-photoLastGesture.cx;
+      photoTransform.y += gesture.cy-photoLastGesture.cy;
+    }else{
+      const scaleFactor=gesture.distance/photoLastGesture.distance;
+      const rotationDelta=gesture.angle-photoLastGesture.angle;
+      photoTransform.scale=Math.max(0.2,Math.min(8,photoTransform.scale*scaleFactor));
+      photoTransform.rotation += rotationDelta;
+      photoTransform.x += gesture.cx-photoLastGesture.cx;
+      photoTransform.y += gesture.cy-photoLastGesture.cy;
+    }
+    photoLastGesture=gesture;
+    drawPhotoEditor();
+  });
+  ["pointerup","pointercancel","pointerleave"].forEach(evt=>canvas.addEventListener(evt,e=>{
+    photoPointers.delete(e.pointerId);
+    photoLastGesture=getPhotoGesture();
+  }));
+}
+function getPhotoGesture(){
+  const pts=[...photoPointers.values()];
+  if(pts.length===0)return null;
+  if(pts.length===1)return {cx:pts[0].x,cy:pts[0].y,distance:1,angle:0};
+  const a=pts[0],b=pts[1];
+  return {cx:(a.x+b.x)/2,cy:(a.y+b.y)/2,distance:Math.hypot(b.x-a.x,b.y-a.y)||1,angle:Math.atan2(b.y-a.y,b.x-a.x)};
+}
+function handlePhotoBarcodeInput(e){
+  const file=e.target.files&&e.target.files[0];
+  if(!file)return;
+  const img=new Image();
+  img.onload=()=>{
+    photoImage=img;
+    resetPhotoView(false);
+    if(el("photoEditor"))el("photoEditor").classList.remove("hidden");
+    drawPhotoEditor();
+    showToast("Photo loaded. Move barcode into the box.");
+  };
+  img.onerror=()=>showToast("Could not load image.");
+  img.src=URL.createObjectURL(file);
+}
+function resetPhotoView(redraw=true){
+  const canvas=el("photoCanvas");
+  if(!canvas||!photoImage)return;
+  const rect=canvas.getBoundingClientRect();
+  const baseScale=Math.min(rect.width/photoImage.width,rect.height/photoImage.height);
+  photoTransform={x:0,y:0,scale:baseScale,rotation:0};
+  if(redraw)drawPhotoEditor();
+}
+function rotatePhoto(degrees){
+  if(!photoImage)return;
+  photoTransform.rotation += degrees*Math.PI/180;
+  drawPhotoEditor();
+}
+function resizePhotoCanvasToDisplay(canvas){
+  const rect=canvas.getBoundingClientRect();
+  const dpr=window.devicePixelRatio||1;
+  const w=Math.max(1,Math.floor(rect.width*dpr));
+  const h=Math.max(1,Math.floor(rect.height*dpr));
+  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
+  return {w,h,dpr};
+}
+function drawPhotoEditor(){
+  const canvas=el("photoCanvas");
+  if(!canvas||!photoImage)return;
+  const {w,h,dpr}=resizePhotoCanvasToDisplay(canvas);
+  const ctx=canvas.getContext("2d");
+  ctx.clearRect(0,0,w,h);
+  ctx.save();
+  ctx.translate(w/2+photoTransform.x*dpr,h/2+photoTransform.y*dpr);
+  ctx.rotate(photoTransform.rotation);
+  ctx.scale(photoTransform.scale*dpr,photoTransform.scale*dpr);
+  ctx.drawImage(photoImage,-photoImage.width/2,-photoImage.height/2);
+  ctx.restore();
+}
+async function scanPhotoRoi(){
+  if(!photoImage){showToast("Load a photo first.");return;}
+  if(isBusy()){showToast("Still saving previous tank.");return;}
+  try{
+    drawPhotoEditor();
+    const source=el("photoCanvas");
+    const crop=document.createElement("canvas");
+    const roiW=Math.floor(source.width*0.42);
+    const roiH=Math.floor(source.height*0.14);
+    const sx=Math.floor((source.width-roiW)/2);
+    const sy=Math.floor((source.height-roiH)/2);
+    const bufferW=Math.floor(roiW*0.35);
+    const bufferH=Math.floor(roiH*0.75);
+    const bsx=Math.max(0,sx-bufferW);
+    const bsy=Math.max(0,sy-bufferH);
+    const bsw=Math.min(source.width-bsx,roiW+2*bufferW);
+    const bsh=Math.min(source.height-bsy,roiH+2*bufferH);
+    crop.width=bsw; crop.height=bsh;
+    crop.getContext("2d").drawImage(source,bsx,bsy,bsw,bsh,0,0,bsw,bsh);
+    const blob=await new Promise(resolve=>crop.toBlob(resolve,"image/png"));
+    if(!blob){showToast("Could not process photo.");return;}
+    const file=new File([blob],"barcode-roi.png",{type:"image/png"});
+    const qr=new Html5Qrcode("photoReader");
+    showToast("Scanning photo...");
+    const decoded=await qr.scanFile(file,false);
+    showToast("Barcode found in photo.");
+    await handleBarcode(decoded);
+  }catch(err){
+    console.error(err);
+    showToast("No barcode found in photo. Try zooming or rotating.");
+  }
+}
 
 // Explicitly expose key handlers for browser callbacks/debugging.
 window.handleBarcode = handleBarcode;
