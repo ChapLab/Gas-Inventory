@@ -12,6 +12,7 @@ var scanBuffer=[];
 var scanStartTime=0;
 var scanBufferTimer=null;
 var scanCollecting=false;
+var scanPaused=false;
 
 const el=id=>document.getElementById(id);
 const normBarcode=value=>String(value||"").trim().replace(/[^a-zA-Z0-9]/g,"").toUpperCase();
@@ -428,7 +429,12 @@ function renderKnownTankUpdate(t,rawScanned=""){
 
   bindDynamicSelects("update");
   on("saveScannedUpdateBtn","click",()=>saveExistingTank(t["Barcode"]));
-  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";});
+
+  on("clearScanFormBtn","click",()=>{
+    el("scanResult").innerHTML="";
+    scanPaused = false;
+    showToast("Ready to scan next tank.");
+  });
 }
 
 function renderNewTankSetup(rawScanned){
@@ -467,7 +473,12 @@ function renderNewTankSetup(rawScanned){
 
   bindDynamicSelects("new");
   on("saveNewTankBtn","click",saveNewTankFromScan);
-  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";});
+
+  on("clearScanFormBtn","click",()=>{
+    el("scanResult").innerHTML="";
+    scanPaused = false;
+    showToast("Ready to scan next tank.");
+  });
 }
 
 function bindDynamicSelects(prefix){
@@ -534,6 +545,7 @@ async function saveExistingTank(barcode){
     el("scanResult").dataset.saved="true";
     el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");
     scrollToEl("cameraCard");
+    scanPaused = false;
   }catch(err){
     showToast(err.message);
     await refreshData();
@@ -604,6 +616,7 @@ async function saveNewTank(tank,fromScan){
       showView("scanView");
     }
     scrollToEl("cameraCard");
+    scanPaused = false;
   }catch(err){
     showToast(err.message);
     await refreshData();
@@ -656,7 +669,7 @@ function queueScanResult(decodedText){
     scanBuffer=[];
     scanStartTime=Date.now();
 
-    setTimeout(()=>finalizeScanBuffer(),200);
+    scanBufferTimer=setTimeout(()=>finalizeScanBuffer(),200);
   }
 
   if(scanBuffer.length < 2){
@@ -668,33 +681,14 @@ function queueScanResult(decodedText){
   }
 }
 
-  const raw=String(decodedText||"").trim();
-  if(!raw)return;
-
-  // Start a 0.5 second collection window. During this time, collect up to 5 reads.
-  if(!scanCollecting){
-    scanCollecting=true;
-    scanBuffer=[];
-    showToast("Reading barcode... hold steady.");
-
-    scanBufferTimer=setTimeout(()=>{
-      finalizeScanBuffer();
-    },500);
-  }
-
-  // Only add every ~0.1 s worth of reads, and cap at 5 reads total.
-  if(scanBuffer.length<5){
-    scanBuffer.push(raw);
-  }
-
-  if(scanBuffer.length>=5){
-    finalizeScanBuffer();
-  }
-}
-
 function finalizeScanBuffer(){
   if(!scanCollecting) return;
   scanCollecting=false;
+
+  if(scanBufferTimer){
+    clearTimeout(scanBufferTimer);
+    scanBufferTimer=null;
+  }
 
   const reads=scanBuffer.slice(0,2);
   scanBuffer=[];
@@ -712,55 +706,9 @@ function finalizeScanBuffer(){
     chosen = reads.sort((a,b)=>b.length-a.length)[0]; // fallback longest
   }
 
+  scanPaused = true;
   showToast("Barcode confirmed");
   handleBarcode(chosen);
-}
-
-  const reads=scanBuffer.slice(0,5);
-  scanBuffer=[];
-
-  if(reads.length===0){
-    showToast("No barcode captured.");
-    return;
-  }
-
-  const chosen=chooseBestBarcode(reads);
-  showToast(`Barcode confirmed: ${chosen}`);
-  handleBarcode(chosen);
-}
-
-function chooseBestBarcode(reads){
-  // Group normalized reads. Prefer the most frequent normalized value.
-  // If tied, prefer the longer raw read because partial barcode reads are often shorter.
-  const groups={};
-
-  reads.forEach(raw=>{
-    const norm=normBarcode(raw);
-    if(!norm)return;
-    if(!groups[norm]){
-      groups[norm]={norm,raws:[],count:0,maxLen:0,bestRaw:raw};
-    }
-    groups[norm].raws.push(raw);
-    groups[norm].count++;
-    if(String(raw).length>groups[norm].maxLen){
-      groups[norm].maxLen=String(raw).length;
-      groups[norm].bestRaw=raw;
-    }
-  });
-
-  const candidates=Object.values(groups);
-
-  if(candidates.length===0){
-    return reads.sort((a,b)=>String(b).length-String(a).length)[0];
-  }
-
-  candidates.sort((a,b)=>{
-    if(b.count!==a.count)return b.count-a.count;
-    if(b.maxLen!==a.maxLen)return b.maxLen-a.maxLen;
-    return b.norm.length-a.norm.length;
-  });
-
-  return candidates[0].bestRaw;
 }
 
 function startScanner(){
@@ -795,13 +743,12 @@ function startScanner(){
   },false);
 
   scanner.render(decodedText=>{
+    if(scanPaused) return;
     if(scanCooldown && decodedText===lastScanned) return;
 
     lastScanned=decodedText;
     queueScanResult(decodedText);
 
-    // Short cooldown so the same camera frame does not spam the buffer,
-    // while still allowing about 5 reads over 0.5 seconds.
     scanCooldown=true;
     setTimeout(()=>{scanCooldown=false;},100);
   });
@@ -810,6 +757,7 @@ function startScanner(){
 async function stopScanner(){
   scanCollecting=false;
   scanBuffer=[];
+  scanPaused=false;
   if(scanBufferTimer){clearTimeout(scanBufferTimer);scanBufferTimer=null;}
   if(scanner){
     try{await scanner.clear();}catch(err){console.warn(err);}
