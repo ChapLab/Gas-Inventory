@@ -12,11 +12,6 @@ var scanBuffer=[];
 var scanStartTime=0;
 var scanBufferTimer=null;
 var scanCollecting=false;
-var scanPaused=false;
-var photoImage=null;
-var photoTransform={x:0,y:0,scale:1,rotation:0};
-var photoPointers=new Map();
-var photoLastGesture=null;
 
 const el=id=>document.getElementById(id);
 const normBarcode=value=>String(value||"").trim().replace(/[^a-zA-Z0-9]/g,"").toUpperCase();
@@ -80,12 +75,6 @@ function bindEvents(){
   });
   on("addTankBtn","click",addTankFromForm);
   on("downloadCsvBtn","click",downloadCsv);
-  on("photoBarcodeInput","change",handlePhotoBarcodeInput);
-  on("photoRotateLeftBtn","click",()=>rotatePhoto(-90));
-  on("photoRotateRightBtn","click",()=>rotatePhoto(90));
-  on("photoResetBtn","click",resetPhotoView);
-  on("photoScanBtn","click",scanPhotoRoi);
-  setupPhotoTouchEvents();
 }
 
 function loadSettings(){
@@ -439,12 +428,7 @@ function renderKnownTankUpdate(t,rawScanned=""){
 
   bindDynamicSelects("update");
   on("saveScannedUpdateBtn","click",()=>saveExistingTank(t["Barcode"]));
-
-  on("clearScanFormBtn","click",()=>{
-    el("scanResult").innerHTML="";
-    scanPaused = false;
-    showToast("Ready to scan next tank.");
-  });
+  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";});
 }
 
 function renderNewTankSetup(rawScanned){
@@ -483,12 +467,7 @@ function renderNewTankSetup(rawScanned){
 
   bindDynamicSelects("new");
   on("saveNewTankBtn","click",saveNewTankFromScan);
-
-  on("clearScanFormBtn","click",()=>{
-    el("scanResult").innerHTML="";
-    scanPaused = false;
-    showToast("Ready to scan next tank.");
-  });
+  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";});
 }
 
 function bindDynamicSelects(prefix){
@@ -555,7 +534,6 @@ async function saveExistingTank(barcode){
     el("scanResult").dataset.saved="true";
     el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");
     scrollToEl("cameraCard");
-    scanPaused = false;
   }catch(err){
     showToast(err.message);
     await refreshData();
@@ -626,7 +604,6 @@ async function saveNewTank(tank,fromScan){
       showView("scanView");
     }
     scrollToEl("cameraCard");
-    scanPaused = false;
   }catch(err){
     showToast(err.message);
     await refreshData();
@@ -679,7 +656,7 @@ function queueScanResult(decodedText){
     scanBuffer=[];
     scanStartTime=Date.now();
 
-    scanBufferTimer=setTimeout(()=>finalizeScanBuffer(),200);
+    setTimeout(()=>finalizeScanBuffer(),200);
   }
 
   if(scanBuffer.length < 2){
@@ -691,14 +668,33 @@ function queueScanResult(decodedText){
   }
 }
 
+  const raw=String(decodedText||"").trim();
+  if(!raw)return;
+
+  // Start a 0.5 second collection window. During this time, collect up to 5 reads.
+  if(!scanCollecting){
+    scanCollecting=true;
+    scanBuffer=[];
+    showToast("Reading barcode... hold steady.");
+
+    scanBufferTimer=setTimeout(()=>{
+      finalizeScanBuffer();
+    },500);
+  }
+
+  // Only add every ~0.1 s worth of reads, and cap at 5 reads total.
+  if(scanBuffer.length<5){
+    scanBuffer.push(raw);
+  }
+
+  if(scanBuffer.length>=5){
+    finalizeScanBuffer();
+  }
+}
+
 function finalizeScanBuffer(){
   if(!scanCollecting) return;
   scanCollecting=false;
-
-  if(scanBufferTimer){
-    clearTimeout(scanBufferTimer);
-    scanBufferTimer=null;
-  }
 
   const reads=scanBuffer.slice(0,2);
   scanBuffer=[];
@@ -716,9 +712,55 @@ function finalizeScanBuffer(){
     chosen = reads.sort((a,b)=>b.length-a.length)[0]; // fallback longest
   }
 
-  scanPaused = true;
   showToast("Barcode confirmed");
   handleBarcode(chosen);
+}
+
+  const reads=scanBuffer.slice(0,5);
+  scanBuffer=[];
+
+  if(reads.length===0){
+    showToast("No barcode captured.");
+    return;
+  }
+
+  const chosen=chooseBestBarcode(reads);
+  showToast(`Barcode confirmed: ${chosen}`);
+  handleBarcode(chosen);
+}
+
+function chooseBestBarcode(reads){
+  // Group normalized reads. Prefer the most frequent normalized value.
+  // If tied, prefer the longer raw read because partial barcode reads are often shorter.
+  const groups={};
+
+  reads.forEach(raw=>{
+    const norm=normBarcode(raw);
+    if(!norm)return;
+    if(!groups[norm]){
+      groups[norm]={norm,raws:[],count:0,maxLen:0,bestRaw:raw};
+    }
+    groups[norm].raws.push(raw);
+    groups[norm].count++;
+    if(String(raw).length>groups[norm].maxLen){
+      groups[norm].maxLen=String(raw).length;
+      groups[norm].bestRaw=raw;
+    }
+  });
+
+  const candidates=Object.values(groups);
+
+  if(candidates.length===0){
+    return reads.sort((a,b)=>String(b).length-String(a).length)[0];
+  }
+
+  candidates.sort((a,b)=>{
+    if(b.count!==a.count)return b.count-a.count;
+    if(b.maxLen!==a.maxLen)return b.maxLen-a.maxLen;
+    return b.norm.length-a.norm.length;
+  });
+
+  return candidates[0].bestRaw;
 }
 
 function startScanner(){
@@ -732,7 +774,7 @@ function startScanner(){
 
   scanner=new Html5QrcodeScanner("reader",{
     fps:10,
-    qrbox:(viewfinderWidth, viewfinderHeight)=>{ return {width:Math.floor(viewfinderWidth*0.25), height:Math.floor(viewfinderHeight*0.10)}; },
+    qrbox:(viewfinderWidth, viewfinderHeight)=>{ return {width:Math.floor(viewfinderWidth*0.5), height:Math.floor(viewfinderHeight*0.2)}; },
     rememberLastUsedCamera:true,
     supportedScanTypes:[Html5QrcodeScanType.SCAN_TYPE_CAMERA],
     formatsToSupport:[
@@ -753,12 +795,13 @@ function startScanner(){
   },false);
 
   scanner.render(decodedText=>{
-    if(scanPaused) return;
     if(scanCooldown && decodedText===lastScanned) return;
 
     lastScanned=decodedText;
     queueScanResult(decodedText);
 
+    // Short cooldown so the same camera frame does not spam the buffer,
+    // while still allowing about 5 reads over 0.5 seconds.
     scanCooldown=true;
     setTimeout(()=>{scanCooldown=false;},100);
   });
@@ -767,7 +810,6 @@ function startScanner(){
 async function stopScanner(){
   scanCollecting=false;
   scanBuffer=[];
-  scanPaused=false;
   if(scanBufferTimer){clearTimeout(scanBufferTimer);scanBufferTimer=null;}
   if(scanner){
     try{await scanner.clear();}catch(err){console.warn(err);}
@@ -833,332 +875,8 @@ function escapeAttr(str){
 }
 
 
-
-function setupPhotoTouchEvents(){
-  const canvas=el("photoCanvas");
-  if(!canvas)return;
-  canvas.addEventListener("pointerdown",e=>{
-    if(!photoImage)return;
-    canvas.setPointerCapture(e.pointerId);
-    photoPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-    photoLastGesture=getPhotoGesture();
-  });
-  canvas.addEventListener("pointermove",e=>{
-    if(!photoImage||!photoPointers.has(e.pointerId))return;
-    photoPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-    const gesture=getPhotoGesture();
-    if(!gesture||!photoLastGesture){photoLastGesture=gesture;return;}
-    if(photoPointers.size===1){
-      photoTransform.x += gesture.cx-photoLastGesture.cx;
-      photoTransform.y += gesture.cy-photoLastGesture.cy;
-    }else{
-      const scaleFactor=gesture.distance/photoLastGesture.distance;
-      const rotationDelta=gesture.angle-photoLastGesture.angle;
-      photoTransform.scale=Math.max(0.2,Math.min(8,photoTransform.scale*scaleFactor));
-      photoTransform.rotation += rotationDelta;
-      photoTransform.x += gesture.cx-photoLastGesture.cx;
-      photoTransform.y += gesture.cy-photoLastGesture.cy;
-    }
-    photoLastGesture=gesture;
-    drawPhotoEditor();
-  });
-  ["pointerup","pointercancel","pointerleave"].forEach(evt=>canvas.addEventListener(evt,e=>{
-    photoPointers.delete(e.pointerId);
-    photoLastGesture=getPhotoGesture();
-  }));
-}
-function getPhotoGesture(){
-  const pts=[...photoPointers.values()];
-  if(pts.length===0)return null;
-  if(pts.length===1)return {cx:pts[0].x,cy:pts[0].y,distance:1,angle:0};
-  const a=pts[0],b=pts[1];
-  return {cx:(a.x+b.x)/2,cy:(a.y+b.y)/2,distance:Math.hypot(b.x-a.x,b.y-a.y)||1,angle:Math.atan2(b.y-a.y,b.x-a.x)};
-}
-function handlePhotoBarcodeInput(e){
-  const file=e.target.files&&e.target.files[0];
-  if(!file)return;
-  const img=new Image();
-  img.onload=()=>{
-    photoImage=img;
-    resetPhotoView(false);
-    if(el("photoEditor"))el("photoEditor").classList.remove("hidden");
-    drawPhotoEditor();
-    showToast("Photo loaded. Move barcode into the box.");
-  };
-  img.onerror=()=>showToast("Could not load image.");
-  img.src=URL.createObjectURL(file);
-}
-function resetPhotoView(redraw=true){
-  const canvas=el("photoCanvas");
-  if(!canvas||!photoImage)return;
-  const rect=canvas.getBoundingClientRect();
-  const baseScale=Math.min(rect.width/photoImage.width,rect.height/photoImage.height);
-  photoTransform={x:0,y:0,scale:baseScale,rotation:0};
-  if(redraw)drawPhotoEditor();
-}
-function rotatePhoto(degrees){
-  if(!photoImage)return;
-  photoTransform.rotation += degrees*Math.PI/180;
-  drawPhotoEditor();
-}
-function resizePhotoCanvasToDisplay(canvas){
-  const rect=canvas.getBoundingClientRect();
-  const dpr=window.devicePixelRatio||1;
-  const w=Math.max(1,Math.floor(rect.width*dpr));
-  const h=Math.max(1,Math.floor(rect.height*dpr));
-  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
-  return {w,h,dpr};
-}
-function drawPhotoEditor(){
-  const canvas=el("photoCanvas");
-  if(!canvas||!photoImage)return;
-  const {w,h,dpr}=resizePhotoCanvasToDisplay(canvas);
-  const ctx=canvas.getContext("2d");
-  ctx.clearRect(0,0,w,h);
-  ctx.save();
-  ctx.translate(w/2+photoTransform.x*dpr,h/2+photoTransform.y*dpr);
-  ctx.rotate(photoTransform.rotation);
-  ctx.scale(photoTransform.scale*dpr,photoTransform.scale*dpr);
-  ctx.drawImage(photoImage,-photoImage.width/2,-photoImage.height/2);
-  ctx.restore();
-}
-async function scanPhotoRoi(){
-  if(!photoImage){showToast("Load a photo first.");return;}
-  if(isBusy()){showToast("Still saving previous tank.");return;}
-  try{
-    drawPhotoEditor();
-    const source=el("photoCanvas");
-    const crop=document.createElement("canvas");
-    const roiW=Math.floor(source.width*0.42);
-    const roiH=Math.floor(source.height*0.14);
-    const sx=Math.floor((source.width-roiW)/2);
-    const sy=Math.floor((source.height-roiH)/2);
-    const bufferW=Math.floor(roiW*0.35);
-    const bufferH=Math.floor(roiH*0.75);
-    const bsx=Math.max(0,sx-bufferW);
-    const bsy=Math.max(0,sy-bufferH);
-    const bsw=Math.min(source.width-bsx,roiW+2*bufferW);
-    const bsh=Math.min(source.height-bsy,roiH+2*bufferH);
-    crop.width=bsw; crop.height=bsh;
-    crop.getContext("2d").drawImage(source,bsx,bsy,bsw,bsh,0,0,bsw,bsh);
-    const blob=await new Promise(resolve=>crop.toBlob(resolve,"image/png"));
-    if(!blob){showToast("Could not process photo.");return;}
-    const file=new File([blob],"barcode-roi.png",{type:"image/png"});
-    const qr=new Html5Qrcode("photoReader");
-    showToast("Scanning photo...");
-    const decoded=await qr.scanFile(file,false);
-    showToast("Barcode found in photo.");
-    await handleBarcode(decoded);
-  }catch(err){
-    console.error(err);
-    showToast("No barcode found in photo. Try zooming or rotating.");
-  }
-}
-
 // Explicitly expose key handlers for browser callbacks/debugging.
 window.handleBarcode = handleBarcode;
 window.addTankFromForm = addTankFromForm;
 window.saveDefaultUser = saveDefaultUser;
 window.refreshData = refreshData;
-
-
-/* ---------------- PHOTO SCAN ROBUST OVERRIDE v17 ----------------
-   This overrides the v16 photo scan path. It scans the visible guide box PLUS
-   a generous buffer and also tries a full transformed canvas fallback.
-*/
-
-function getPhotoCanvasElement(){
-  return document.getElementById("photoCanvas") ||
-         document.getElementById("photoScanCanvas") ||
-         document.querySelector("canvas.photo-canvas") ||
-         document.querySelector("#photoScanArea canvas") ||
-         document.querySelector("canvas");
-}
-
-function getPhotoImageElement(){
-  return document.getElementById("photoPreviewImage") ||
-         document.getElementById("photoImage") ||
-         document.querySelector("#photoScanArea img") ||
-         document.querySelector("img.photo-preview");
-}
-
-async function scanPhotoRobust(){
-  try{
-    showToast("Scanning photo...");
-
-    const sourceCanvas = getPhotoCanvasElement();
-
-    if(!sourceCanvas){
-      showToast("Photo canvas not found.");
-      return;
-    }
-
-    // Try several versions because barcode detection is sensitive to crop size and contrast.
-    const canvases = buildPhotoScanCanvases(sourceCanvas);
-
-    let lastError = null;
-
-    for(let i=0;i<canvases.length;i++){
-      try{
-        const decoded = await decodeCanvasWithHtml5Qrcode(canvases[i]);
-        if(decoded){
-          showToast("Barcode found in photo.");
-          handleBarcode(decoded);
-          return;
-        }
-      }catch(err){
-        lastError = err;
-        console.warn("Photo scan attempt failed", i, err);
-      }
-    }
-
-    showToast("No barcode found. Zoom out or include the full barcode.");
-    if(lastError) console.warn(lastError);
-
-  }catch(err){
-    console.error(err);
-    showToast("Photo scan failed: " + (err.message || err));
-  }
-}
-
-function buildPhotoScanCanvases(sourceCanvas){
-  const list = [];
-
-  // 1) Full visible canvas exactly as user sees it.
-  list.push(cloneCanvas(sourceCanvas));
-
-  // 2) Center crop with buffer around the guide area.
-  // Since the ROI is visually small, use a much bigger buffered crop:
-  // 90% width and 50% height centered. This prevents over-cropping.
-  list.push(cropCanvas(sourceCanvas, 0.05, 0.25, 0.90, 0.50));
-
-  // 3) Even wider strip for long Code128-style tank barcodes.
-  list.push(cropCanvas(sourceCanvas, 0.00, 0.30, 1.00, 0.40));
-
-  // 4) Contrast-enhanced versions of above.
-  const originals = list.slice();
-  originals.forEach(c => list.push(makeHighContrastCanvas(c)));
-
-  // 5) Rotated small-angle attempts in case the barcode is slightly tilted.
-  originals.forEach(c => {
-    list.push(rotateCanvas(c, 2));
-    list.push(rotateCanvas(c, -2));
-    list.push(rotateCanvas(c, 5));
-    list.push(rotateCanvas(c, -5));
-  });
-
-  return list.filter(Boolean);
-}
-
-function cloneCanvas(canvas){
-  const c = document.createElement("canvas");
-  c.width = canvas.width;
-  c.height = canvas.height;
-  c.getContext("2d").drawImage(canvas,0,0);
-  return c;
-}
-
-function cropCanvas(canvas, xFrac, yFrac, wFrac, hFrac){
-  const sx = Math.max(0, Math.floor(canvas.width * xFrac));
-  const sy = Math.max(0, Math.floor(canvas.height * yFrac));
-  const sw = Math.min(canvas.width - sx, Math.floor(canvas.width * wFrac));
-  const sh = Math.min(canvas.height - sy, Math.floor(canvas.height * hFrac));
-
-  const c = document.createElement("canvas");
-  // Upscale crop for older phones / lower-res images
-  c.width = Math.max(800, sw * 2);
-  c.height = Math.max(300, sh * 2);
-  const ctx = c.getContext("2d");
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, c.width, c.height);
-  return c;
-}
-
-function makeHighContrastCanvas(canvas){
-  const c = cloneCanvas(canvas);
-  const ctx = c.getContext("2d");
-  const img = ctx.getImageData(0,0,c.width,c.height);
-  const d = img.data;
-
-  for(let i=0;i<d.length;i+=4){
-    const gray = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
-    const v = gray > 128 ? 255 : 0;
-    d[i]=v; d[i+1]=v; d[i+2]=v;
-  }
-
-  ctx.putImageData(img,0,0);
-  return c;
-}
-
-function rotateCanvas(canvas, degrees){
-  const rad = degrees * Math.PI / 180;
-  const sin = Math.abs(Math.sin(rad));
-  const cos = Math.abs(Math.cos(rad));
-  const w = canvas.width;
-  const h = canvas.height;
-  const newW = Math.ceil(w*cos + h*sin);
-  const newH = Math.ceil(w*sin + h*cos);
-
-  const c = document.createElement("canvas");
-  c.width = newW;
-  c.height = newH;
-  const ctx = c.getContext("2d");
-  ctx.fillStyle = "white";
-  ctx.fillRect(0,0,newW,newH);
-  ctx.translate(newW/2,newH/2);
-  ctx.rotate(rad);
-  ctx.drawImage(canvas,-w/2,-h/2);
-  return c;
-}
-
-function decodeCanvasWithHtml5Qrcode(canvas){
-  return new Promise((resolve,reject)=>{
-    canvas.toBlob(blob=>{
-      if(!blob){
-        reject(new Error("Could not create image blob."));
-        return;
-      }
-
-      const file = new File([blob], "photo-scan.png", {type:"image/png"});
-
-      
-      let tempId = "photoDecodeReader";
-      let temp = document.getElementById(tempId);
-      if(!temp){
-        temp = document.createElement("div");
-        temp.id = tempId;
-        temp.style.display = "none";
-        document.body.appendChild(temp);
-      }
-      const qr = new Html5Qrcode(tempId);
-      qr.scanFile(file, true)
-        .then(decoded => {
-          try{ qr.clear(); }catch(e){}
-          resolve(decoded);
-        })
-        .catch(err => {
-          try{ qr.clear(); }catch(e){}
-          reject(err);
-        });
-    }, "image/png");
-  });
-}
-
-// If v16 has a button named scanPhotoBtn, force it to use the robust scanner.
-// Also expose the function globally for inline handlers.
-window.scanPhotoRobust = scanPhotoRobust;
-window.scanPhoto = scanPhotoRobust;
-window.scanPhotoImage = scanPhotoRobust;
-
-document.addEventListener("DOMContentLoaded",()=>{
-  const ids=["scanPhotoBtn","photoScanBtn","scanImageBtn"];
-  ids.forEach(id=>{
-    const btn=document.getElementById(id);
-    if(btn){
-      btn.addEventListener("click",(e)=>{
-        e.preventDefault();
-        scanPhotoRobust();
-      });
-    }
-  });
-});

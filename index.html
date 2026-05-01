@@ -46,23 +46,6 @@
           <input id="manualBarcodeInput" placeholder="Type barcode number" />
           <button id="manualLookupBtn">Look up</button>
         </div>
-
-        <div class="photo-scan-block">
-          <h3>Scan from photo</h3>
-          <p class="hint">Take or upload a picture, then pinch/drag/rotate until the barcode sits inside the box.</p>
-          <input id="photoBarcodeInput" type="file" accept="image/*" capture="environment" />
-          <div id="photoEditor" class="photo-editor hidden">
-            <canvas id="photoCanvas"></canvas>
-            <div class="photo-roi"></div>
-          </div>
-          <div id="photoReader" class="hidden"></div>
-          <div class="photo-actions">
-            <button id="photoRotateLeftBtn" type="button" class="secondary">↺ Rotate</button>
-            <button id="photoRotateRightBtn" type="button" class="secondary">↻ Rotate</button>
-            <button id="photoResetBtn" type="button" class="secondary">Reset</button>
-            <button id="photoScanBtn" type="button">Scan photo</button>
-          </div>
-        </div>
       </div>
 
       <div id="scanResult"></div>
@@ -155,6 +138,6 @@
     <div id="toast" class="toast hidden"></div>
   </main>
 
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>
