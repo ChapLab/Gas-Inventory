@@ -1,11 +1,12 @@
-# ChapLab Gas Tank Inventory v4
+# ChapLab Gas Tank Inventory v5
 
-Fixes:
-- Standardizes the sheet and app to `Position` instead of mixing Location/Position.
-- Tank ID is always the barcode number.
-- Gas, Room, and Position fields are textboxes with dropdown suggestions from the Google Sheet.
-- Position suggestions are filtered by the selected Room.
-- Scanner stays open after a scan, so the browser should not ask for camera permission for every tank. Tap Stop Scanner when done.
+Changes:
+- Gas, Room, and Position are now real dropdowns like Status.
+- Each dropdown has an "Add new..." option.
+- Selecting "Add new..." reveals a textbox underneath.
+- Position options are filtered by the selected Room.
+- Tank ID is always the barcode.
+- Sheet uses Position, not Location.
 - Tracks Date Added, Date Set In Use, Date Emptied, Last Modified.
 
 Upload to GitHub Pages:
