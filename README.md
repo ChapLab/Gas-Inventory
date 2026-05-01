@@ -44,3 +44,9 @@ Keep the same Web App URL.
 - Live camera ROI is half the previous dimensions: 25% width and 10% height of the camera view.
 - Added photo barcode mode: take/upload a picture, pinch to zoom/pan/rotate into the ROI, then scan from the adjusted photo.
 - Photo mode scans a buffered crop around the ROI, so the visible box is smaller than the actual image area checked.
+
+
+## v17 fix
+- Photo scan no longer only scans the tiny ROI.
+- It scans the full preview, a wide buffered crop, and contrast-enhanced/rotated versions.
+- This fixes the common `No MultiFormat Readers were able to detect the code` error caused by over-cropping or low contrast.

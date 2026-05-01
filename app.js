@@ -960,3 +960,205 @@ window.handleBarcode = handleBarcode;
 window.addTankFromForm = addTankFromForm;
 window.saveDefaultUser = saveDefaultUser;
 window.refreshData = refreshData;
+
+
+/* ---------------- PHOTO SCAN ROBUST OVERRIDE v17 ----------------
+   This overrides the v16 photo scan path. It scans the visible guide box PLUS
+   a generous buffer and also tries a full transformed canvas fallback.
+*/
+
+function getPhotoCanvasElement(){
+  return document.getElementById("photoCanvas") ||
+         document.getElementById("photoScanCanvas") ||
+         document.querySelector("canvas.photo-canvas") ||
+         document.querySelector("#photoScanArea canvas") ||
+         document.querySelector("canvas");
+}
+
+function getPhotoImageElement(){
+  return document.getElementById("photoPreviewImage") ||
+         document.getElementById("photoImage") ||
+         document.querySelector("#photoScanArea img") ||
+         document.querySelector("img.photo-preview");
+}
+
+async function scanPhotoRobust(){
+  try{
+    showToast("Scanning photo...");
+
+    const sourceCanvas = getPhotoCanvasElement();
+
+    if(!sourceCanvas){
+      showToast("Photo canvas not found.");
+      return;
+    }
+
+    // Try several versions because barcode detection is sensitive to crop size and contrast.
+    const canvases = buildPhotoScanCanvases(sourceCanvas);
+
+    let lastError = null;
+
+    for(let i=0;i<canvases.length;i++){
+      try{
+        const decoded = await decodeCanvasWithHtml5Qrcode(canvases[i]);
+        if(decoded){
+          showToast("Barcode found in photo.");
+          handleBarcode(decoded);
+          return;
+        }
+      }catch(err){
+        lastError = err;
+        console.warn("Photo scan attempt failed", i, err);
+      }
+    }
+
+    showToast("No barcode found. Zoom out or include the full barcode.");
+    if(lastError) console.warn(lastError);
+
+  }catch(err){
+    console.error(err);
+    showToast("Photo scan failed: " + (err.message || err));
+  }
+}
+
+function buildPhotoScanCanvases(sourceCanvas){
+  const list = [];
+
+  // 1) Full visible canvas exactly as user sees it.
+  list.push(cloneCanvas(sourceCanvas));
+
+  // 2) Center crop with buffer around the guide area.
+  // Since the ROI is visually small, use a much bigger buffered crop:
+  // 90% width and 50% height centered. This prevents over-cropping.
+  list.push(cropCanvas(sourceCanvas, 0.05, 0.25, 0.90, 0.50));
+
+  // 3) Even wider strip for long Code128-style tank barcodes.
+  list.push(cropCanvas(sourceCanvas, 0.00, 0.30, 1.00, 0.40));
+
+  // 4) Contrast-enhanced versions of above.
+  const originals = list.slice();
+  originals.forEach(c => list.push(makeHighContrastCanvas(c)));
+
+  // 5) Rotated small-angle attempts in case the barcode is slightly tilted.
+  originals.forEach(c => {
+    list.push(rotateCanvas(c, 2));
+    list.push(rotateCanvas(c, -2));
+    list.push(rotateCanvas(c, 5));
+    list.push(rotateCanvas(c, -5));
+  });
+
+  return list.filter(Boolean);
+}
+
+function cloneCanvas(canvas){
+  const c = document.createElement("canvas");
+  c.width = canvas.width;
+  c.height = canvas.height;
+  c.getContext("2d").drawImage(canvas,0,0);
+  return c;
+}
+
+function cropCanvas(canvas, xFrac, yFrac, wFrac, hFrac){
+  const sx = Math.max(0, Math.floor(canvas.width * xFrac));
+  const sy = Math.max(0, Math.floor(canvas.height * yFrac));
+  const sw = Math.min(canvas.width - sx, Math.floor(canvas.width * wFrac));
+  const sh = Math.min(canvas.height - sy, Math.floor(canvas.height * hFrac));
+
+  const c = document.createElement("canvas");
+  // Upscale crop for older phones / lower-res images
+  c.width = Math.max(800, sw * 2);
+  c.height = Math.max(300, sh * 2);
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
+
+function makeHighContrastCanvas(canvas){
+  const c = cloneCanvas(canvas);
+  const ctx = c.getContext("2d");
+  const img = ctx.getImageData(0,0,c.width,c.height);
+  const d = img.data;
+
+  for(let i=0;i<d.length;i+=4){
+    const gray = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+    const v = gray > 128 ? 255 : 0;
+    d[i]=v; d[i+1]=v; d[i+2]=v;
+  }
+
+  ctx.putImageData(img,0,0);
+  return c;
+}
+
+function rotateCanvas(canvas, degrees){
+  const rad = degrees * Math.PI / 180;
+  const sin = Math.abs(Math.sin(rad));
+  const cos = Math.abs(Math.cos(rad));
+  const w = canvas.width;
+  const h = canvas.height;
+  const newW = Math.ceil(w*cos + h*sin);
+  const newH = Math.ceil(w*sin + h*cos);
+
+  const c = document.createElement("canvas");
+  c.width = newW;
+  c.height = newH;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "white";
+  ctx.fillRect(0,0,newW,newH);
+  ctx.translate(newW/2,newH/2);
+  ctx.rotate(rad);
+  ctx.drawImage(canvas,-w/2,-h/2);
+  return c;
+}
+
+function decodeCanvasWithHtml5Qrcode(canvas){
+  return new Promise((resolve,reject)=>{
+    canvas.toBlob(blob=>{
+      if(!blob){
+        reject(new Error("Could not create image blob."));
+        return;
+      }
+
+      const file = new File([blob], "photo-scan.png", {type:"image/png"});
+
+      
+      let tempId = "photoDecodeReader";
+      let temp = document.getElementById(tempId);
+      if(!temp){
+        temp = document.createElement("div");
+        temp.id = tempId;
+        temp.style.display = "none";
+        document.body.appendChild(temp);
+      }
+      const qr = new Html5Qrcode(tempId);
+      qr.scanFile(file, true)
+        .then(decoded => {
+          try{ qr.clear(); }catch(e){}
+          resolve(decoded);
+        })
+        .catch(err => {
+          try{ qr.clear(); }catch(e){}
+          reject(err);
+        });
+    }, "image/png");
+  });
+}
+
+// If v16 has a button named scanPhotoBtn, force it to use the robust scanner.
+// Also expose the function globally for inline handlers.
+window.scanPhotoRobust = scanPhotoRobust;
+window.scanPhoto = scanPhotoRobust;
+window.scanPhotoImage = scanPhotoRobust;
+
+document.addEventListener("DOMContentLoaded",()=>{
+  const ids=["scanPhotoBtn","photoScanBtn","scanImageBtn"];
+  ids.forEach(id=>{
+    const btn=document.getElementById(id);
+    if(btn){
+      btn.addEventListener("click",(e)=>{
+        e.preventDefault();
+        scanPhotoRobust();
+      });
+    }
+  });
+});
