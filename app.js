@@ -8,6 +8,9 @@ var scanner=null;
 var lastScanned="";
 var scanCooldown=false;
 var appBusy=false;
+var scanBuffer=[];
+var scanBufferTimer=null;
+var scanCollecting=false;
 
 const el=id=>document.getElementById(id);
 const normBarcode=value=>String(value||"").trim().replace(/[^a-zA-Z0-9]/g,"").toUpperCase();
@@ -637,6 +640,94 @@ function clearAddForm(){
   populateAddDropdowns();
 }
 
+
+function queueScanResult(decodedText){
+  if(isBusy()){
+    showToast("Still saving the previous tank. Try again in a second.");
+    return;
+  }
+
+  const raw=String(decodedText||"").trim();
+  if(!raw)return;
+
+  // Start a 0.5 second collection window. During this time, collect up to 5 reads.
+  if(!scanCollecting){
+    scanCollecting=true;
+    scanBuffer=[];
+    showToast("Reading barcode... hold steady.");
+
+    scanBufferTimer=setTimeout(()=>{
+      finalizeScanBuffer();
+    },500);
+  }
+
+  // Only add every ~0.1 s worth of reads, and cap at 5 reads total.
+  if(scanBuffer.length<5){
+    scanBuffer.push(raw);
+  }
+
+  if(scanBuffer.length>=5){
+    finalizeScanBuffer();
+  }
+}
+
+function finalizeScanBuffer(){
+  if(!scanCollecting)return;
+
+  scanCollecting=false;
+
+  if(scanBufferTimer){
+    clearTimeout(scanBufferTimer);
+    scanBufferTimer=null;
+  }
+
+  const reads=scanBuffer.slice(0,5);
+  scanBuffer=[];
+
+  if(reads.length===0){
+    showToast("No barcode captured.");
+    return;
+  }
+
+  const chosen=chooseBestBarcode(reads);
+  showToast(`Barcode confirmed: ${chosen}`);
+  handleBarcode(chosen);
+}
+
+function chooseBestBarcode(reads){
+  // Group normalized reads. Prefer the most frequent normalized value.
+  // If tied, prefer the longer raw read because partial barcode reads are often shorter.
+  const groups={};
+
+  reads.forEach(raw=>{
+    const norm=normBarcode(raw);
+    if(!norm)return;
+    if(!groups[norm]){
+      groups[norm]={norm,raws:[],count:0,maxLen:0,bestRaw:raw};
+    }
+    groups[norm].raws.push(raw);
+    groups[norm].count++;
+    if(String(raw).length>groups[norm].maxLen){
+      groups[norm].maxLen=String(raw).length;
+      groups[norm].bestRaw=raw;
+    }
+  });
+
+  const candidates=Object.values(groups);
+
+  if(candidates.length===0){
+    return reads.sort((a,b)=>String(b).length-String(a).length)[0];
+  }
+
+  candidates.sort((a,b)=>{
+    if(b.count!==a.count)return b.count-a.count;
+    if(b.maxLen!==a.maxLen)return b.maxLen-a.maxLen;
+    return b.norm.length-a.norm.length;
+  });
+
+  return candidates[0].bestRaw;
+}
+
 function startScanner(){
   if(!window.Html5QrcodeScanner){showToast("Scanner library did not load. Check internet connection.");return;}
   if(scanner){showToast("Scanner is already open.");return;}
@@ -669,16 +760,22 @@ function startScanner(){
   },false);
 
   scanner.render(decodedText=>{
-    if(scanCooldown||decodedText===lastScanned) return;
-    scanCooldown=true;
+    if(scanCooldown && decodedText===lastScanned) return;
+
     lastScanned=decodedText;
-    showToast("Barcode scanned. Checking sheet...");
-    handleBarcode(decodedText);
-    setTimeout(()=>{scanCooldown=false;lastScanned="";},2500);
+    queueScanResult(decodedText);
+
+    // Short cooldown so the same camera frame does not spam the buffer,
+    // while still allowing about 5 reads over 0.5 seconds.
+    scanCooldown=true;
+    setTimeout(()=>{scanCooldown=false;},100);
   });
 }
 
 async function stopScanner(){
+  scanCollecting=false;
+  scanBuffer=[];
+  if(scanBufferTimer){clearTimeout(scanBufferTimer);scanBufferTimer=null;}
   if(scanner){
     try{await scanner.clear();}catch(err){console.warn(err);}
     scanner=null;

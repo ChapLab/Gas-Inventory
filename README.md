@@ -32,3 +32,9 @@ Keep the same Web App URL.
 - Replaced `let isSaving` with a defensive global `appBusy` state.
 - Added `isBusy()` and `setBusy()` helpers so scan/add/update paths do not directly touch an uninitialized variable.
 - Exposed key handlers on `window` for safer callback/debug behavior.
+
+
+## v14 fix
+- Camera scans are now buffered for 0.5 seconds.
+- The app collects up to 5 reads at roughly 0.1 second intervals.
+- It chooses the most repeated barcode; if tied, it uses the longest raw read to avoid partial barcode reads.
