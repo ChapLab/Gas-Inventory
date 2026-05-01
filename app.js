@@ -10,9 +10,9 @@ var scanCooldown=false;
 var appBusy=false;
 var scanBuffer=[];
 var scanStartTime=0;
+var scanPaused=false;
 var scanBufferTimer=null;
 var scanCollecting=false;
-var scanPaused=false;
 
 const el=id=>document.getElementById(id);
 const normBarcode=value=>String(value||"").trim().replace(/[^a-zA-Z0-9]/g,"").toUpperCase();
@@ -174,8 +174,6 @@ async function handleBarcode(rawBarcode){
   const normalized=normBarcode(raw);
 
   if(!normalized){showToast("No barcode entered.");return;}
-
-  pauseScanning();
 
   if(!el("scanResult")){
     showToast("Scan result area not found.");
@@ -431,7 +429,7 @@ function renderKnownTankUpdate(t,rawScanned=""){
 
   bindDynamicSelects("update");
   on("saveScannedUpdateBtn","click",()=>saveExistingTank(t["Barcode"]));
-  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";resumeScanning();showToast("Scanning resumed.");});
+  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";resumeScanning();showToast("Scanner ready.");});
 }
 
 function renderNewTankSetup(rawScanned){
@@ -470,7 +468,7 @@ function renderNewTankSetup(rawScanned){
 
   bindDynamicSelects("new");
   on("saveNewTankBtn","click",saveNewTankFromScan);
-  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";resumeScanning();showToast("Scanning resumed.");});
+  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";resumeScanning();showToast("Scanner ready.");});
 }
 
 function bindDynamicSelects(prefix){
@@ -535,7 +533,7 @@ async function saveExistingTank(barcode){
     await api("updateFull",{barcode,tank:updates});
     showToast("Tank updated.");
     el("scanResult").dataset.saved="true";
-    el("scanResult").innerHTML=emptyState("Saved. Scanning resumed.");
+    el("scanResult").innerHTML=emptyState("Saved. Scanner ready for the next tank.");
     resumeScanning();
     scrollToEl("cameraCard");
   }catch(err){
@@ -602,7 +600,8 @@ async function saveNewTank(tank,fromScan){
     showToast("New tank added.");
     if(fromScan && el("scanResult")){
       el("scanResult").dataset.saved="true";
-      el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");
+      el("scanResult").innerHTML=emptyState("Saved. Scanner ready for the next tank.");
+      resumeScanning();
     }else{
       clearAddForm();
       showView("scanView");
@@ -649,23 +648,15 @@ function clearAddForm(){
 
 function pauseScanning(){
   scanPaused=true;
-  scanCollecting=false;
-  scanBuffer=[];
-  if(scanBufferTimer){
-    clearTimeout(scanBufferTimer);
-    scanBufferTimer=null;
-  }
 }
 
 function resumeScanning(){
   scanPaused=false;
   scanCollecting=false;
   scanBuffer=[];
+  scanStartTime=0;
   lastScanned="";
-  if(scanBufferTimer){
-    clearTimeout(scanBufferTimer);
-    scanBufferTimer=null;
-  }
+  scanCooldown=false;
 }
 
 function queueScanResult(decodedText){
@@ -743,7 +734,7 @@ function finalizeScanBuffer(){
   }
 
   pauseScanning();
-  showToast("Barcode confirmed. Scanning paused.");
+  showToast("Barcode confirmed");
   handleBarcode(chosen);
 }
 
@@ -795,6 +786,7 @@ function chooseBestBarcode(reads){
 }
 
 function startScanner(){
+  resumeScanning();
   if(!window.Html5QrcodeScanner){showToast("Scanner library did not load. Check internet connection.");return;}
   if(scanner){showToast("Scanner is already open.");return;}
   if(!el("reader")){showToast("Scanner area not found.");return;}

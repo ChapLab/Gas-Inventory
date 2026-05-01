@@ -41,10 +41,6 @@ Keep the same Web App URL.
 
 
 ## v16 changes
-- After the scanner confirms a barcode, scanning pauses while keeping the camera open.
-- Scanning resumes only after:
-  - Add new tank succeeds
-  - Save update succeeds
-  - Clear form is pressed
-  - Stop scanner is pressed
-- This prevents the camera from immediately scanning another barcode and wiping the open form.
+- After a barcode is accepted and the form opens, scanning pauses.
+- The camera stays open, but new barcode reads are ignored while the form is active.
+- Scanning resumes after saving the form or tapping Clear form.
