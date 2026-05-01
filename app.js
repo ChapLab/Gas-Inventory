@@ -89,7 +89,7 @@ async function refreshData(){
   try{
     const data=await api("list");
     tanks=data.tanks||[];
-    updateConnectionStatus(`Loaded ${tanks.length} tanks`);
+    updateConnectionStatus(`Loaded ${tanks.length} current tanks`);
     populateAllOptions();renderResults();
   }catch(err){updateConnectionStatus("Connection error");showToast(err.message);}
 }
@@ -104,9 +104,9 @@ function populateAddDropdowns(){
   fillSelect(el("addGasSelect"),"Select gas",uniqueValues("Gas"),true);
   fillSelect(el("addRoomSelect"),"Select room",uniqueValues("Room"),true);
   populatePositionSelectFor("addRoomSelect","addRoomNew","addPositionSelect","addPositionNew");
-  toggleAddNewInput("addGasSelect","addGasNew");
-  toggleAddNewInput("addRoomSelect","addRoomNew");
-  toggleAddNewInput("addPositionSelect","addPositionNew");
+  toggleAddNewInput("addGasSelect","addGasNew",false);
+  toggleAddNewInput("addRoomSelect","addRoomNew",false);
+  toggleAddNewInput("addPositionSelect","addPositionNew",false);
 }
 
 function uniqueValues(key){return[...new Set(tanks.map(t=>(t[key]||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));}
@@ -137,17 +137,19 @@ function fillSelect(select,placeholder,values,includeAddNew){
   }
   if([...select.options].some(o=>o.value===current))select.value=current;
 }
-function toggleAddNewInput(selectId,inputId){
+function toggleAddNewInput(selectId,inputId,focus=true){
   const select=el(selectId),input=el(inputId);
   if(!select||!input)return;
   const isAdd=select.value===ADD_NEW_VALUE;
   input.classList.toggle("hidden",!isAdd);
-  if(isAdd)setTimeout(()=>input.focus(),0);
+  if(isAdd&&focus)setTimeout(()=>input.focus(),0);
 }
 function populatePositionSelectFor(roomSelectId,roomNewId,positionSelectId,positionNewId){
   const room=selectedOrNew(roomSelectId,roomNewId);
+  const current=el(positionSelectId)?el(positionSelectId).value:"";
   fillSelect(el(positionSelectId),"Select position",positionsForRoom(room),true);
-  toggleAddNewInput(positionSelectId,positionNewId);
+  if(el(positionSelectId)&&[...el(positionSelectId).options].some(o=>o.value===current))el(positionSelectId).value=current;
+  toggleAddNewInput(positionSelectId,positionNewId,false);
 }
 
 function renderResults(){
@@ -186,19 +188,19 @@ function tankCardHtml(t){
         <div>Last modified: <b>${escapeHtml(formatDate(t["Last Modified"])||"Not recorded")}</b>${t["Updated By"]?" by "+escapeHtml(t["Updated By"]):""}</div>
       </div>
       <div class="status-actions">
-        <button data-update-barcode="${escapeAttr(t["Barcode"])}" data-status="New">New</button>
-        <button data-update-barcode="${escapeAttr(t["Barcode"])}" data-status="In Use">In Use</button>
-        <button data-update-barcode="${escapeAttr(t["Barcode"])}" data-status="Empty">Empty</button>
+        <button data-update-barcode="${escapeAttr(t["Barcode"])}" data-status="New" ${t["Status"]==="New"?"disabled":""}>New</button>
+        <button data-update-barcode="${escapeAttr(t["Barcode"])}" data-status="In Use" ${t["Status"]==="In Use"?"disabled":""}>In Use</button>
+        <button data-update-barcode="${escapeAttr(t["Barcode"])}" data-status="Empty" ${t["Status"]==="Empty"?"disabled":""}>Empty</button>
       </div>
     </article>`;
 }
 function statusToClass(status){if(status==="In Use")return"InUse";if(status==="Empty")return"Empty";return"New";}
 
-function locallyApplyUpdate(barcode,updates){
+function locallyApplyUpdate(barcode,updates,eventType="update"){
   const index=tanks.findIndex(t=>String(t["Barcode"]).trim()===String(barcode).trim());
-  if(index<0)return;
   const now=new Date().toISOString();
-  tanks[index]={...tanks[index],...updates,"Tank ID":barcode,"Last Modified":now};
+  if(index<0)return;
+  tanks[index]={...tanks[index],...updates,"Tank ID":barcode,"Last Modified":now,"Event Type":eventType,"Event ID":"local-"+Date.now()};
   if(updates["Status"]==="In Use")tanks[index]["Date Set In Use"]=now;
   if(updates["Status"]==="Empty")tanks[index]["Date Emptied"]=now;
   renderResults();populateAllOptions();
@@ -206,7 +208,7 @@ function locallyApplyUpdate(barcode,updates){
 
 async function updateTankStatus(barcode,status){
   const updatedBy=getDefaultUser()||prompt("Your initials?")||"";
-  locallyApplyUpdate(barcode,{"Status":status,"Updated By":updatedBy});
+  locallyApplyUpdate(barcode,{"Status":status,"Updated By":updatedBy},"status");
   showToast(`Saving ${status}...`);
   try{await api("updateStatus",{barcode,status,updatedBy});showToast(`Marked ${status}.`);await refreshData();}
   catch(err){showToast(err.message);await refreshData();}
@@ -224,12 +226,12 @@ function startScanner(){
   el("reader").classList.remove("hidden");
   if(el("startScanBtn"))el("startScanBtn").classList.add("hidden");
   if(el("stopScanBtn"))el("stopScanBtn").classList.remove("hidden");
-  scanner=new Html5QrcodeScanner("reader",{fps:10,qrbox:{width:260,height:140},rememberLastUsedCamera:true,supportedScanTypes:[Html5QrcodeScanType.SCAN_TYPE_CAMERA],formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.CODE_93,Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.QR_CODE]},false);
+  scanner=new Html5QrcodeScanner("reader",{fps:10,qrbox:{width:280,height:160},rememberLastUsedCamera:true,supportedScanTypes:[Html5QrcodeScanType.SCAN_TYPE_CAMERA],formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.CODE_93,Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.QR_CODE],videoConstraints:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080},focusMode:"continuous"}},false);
   scanner.render(decodedText=>{
     if(scanCooldown||decodedText===lastScanned)return;
     scanCooldown=true;lastScanned=decodedText;
     handleBarcode(decodedText);
-    showToast("Barcode scanned. Scanner left open.");
+    showToast("✅ Barcode scanned. Form opened below.");
     setTimeout(()=>{scanCooldown=false;lastScanned="";},2500);
   });
 }
@@ -246,6 +248,7 @@ function handleBarcode(rawBarcode){
   if(!barcode){showToast("No barcode entered.");return;}
   const found=tanks.find(t=>String(t["Barcode"]).trim()===barcode);
   if(found)renderKnownTankUpdate(found);else renderNewTankSetup(barcode);
+  setTimeout(()=>scrollToEl("scanResult"),100);
 }
 
 function buildValueSelect(fieldName,selectId,newInputId,values,currentValue,placeholder){
@@ -267,7 +270,8 @@ function renderKnownTankUpdate(t){
   if(!el("scanResult"))return;
   const gases=uniqueValues("Gas"),rooms=uniqueValues("Room"),positions=positionsForRoom(t["Room"]);
   el("scanResult").innerHTML=`
-    <div class="card">
+    <div class="card success">
+      <div class="scan-banner">✅ Barcode scanned</div>
       <h2>Tank found: update it</h2>
       <p><b>${escapeHtml(t["Tank ID"]||t["Barcode"]||"No tank ID")}</b> · ${escapeHtml(t["Gas"]||"Unknown gas")}</p>
       <p>Current: ${escapeHtml(t["Room"]||"No room")} · ${escapeHtml(t["Position"]||"No position")} · <b>${escapeHtml(t["Status"]||"No status")}</b></p>
@@ -296,16 +300,16 @@ function renderKnownTankUpdate(t){
   on("updateRoomSelect","change",()=>{toggleAddNewInput("updateRoomSelect","updateRoomNew");populatePositionSelectFor("updateRoomSelect","updateRoomNew","updatePositionSelect","updatePositionNew");});
   on("updateRoomNew","input",()=>populatePositionSelectFor("updateRoomSelect","updateRoomNew","updatePositionSelect","updatePositionNew"));
   on("updatePositionSelect","change",()=>toggleAddNewInput("updatePositionSelect","updatePositionNew"));
-  toggleAddNewInput("updateGasSelect","updateGasNew");
-  toggleAddNewInput("updateRoomSelect","updateRoomNew");
-  toggleAddNewInput("updatePositionSelect","updatePositionNew");
+  toggleAddNewInput("updateGasSelect","updateGasNew",false);
+  toggleAddNewInput("updateRoomSelect","updateRoomNew",false);
+  toggleAddNewInput("updatePositionSelect","updatePositionNew",false);
   on("saveScannedUpdateBtn","click",async()=>{
     const updatedBy=el("updateUpdatedBy").value.trim();
     if(updatedBy){localStorage.setItem(STORAGE_KEYS.defaultUser,updatedBy);if(el("defaultUserInput"))el("defaultUserInput").value=updatedBy;if(el("addUpdatedBy"))el("addUpdatedBy").value=updatedBy;}
     const updates={"Gas":selectedOrNew("updateGasSelect","updateGasNew"),"Room":selectedOrNew("updateRoomSelect","updateRoomNew"),"Position":selectedOrNew("updatePositionSelect","updatePositionNew"),"Status":el("updateStatus").value,"Updated By":updatedBy};
     if(!updates["Gas"]||!updates["Room"]||!updates["Position"]){showToast("Gas, room, and position are required.");return;}
-    locallyApplyUpdate(t["Barcode"],updates);showToast("Saving update...");
-    try{await api("updateFull",{barcode:t["Barcode"],tank:updates});showToast("Tank updated.");await refreshData();el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");}
+    locallyApplyUpdate(t["Barcode"],updates,"update");showToast("Saving update...");
+    try{await api("updateFull",{barcode:t["Barcode"],tank:updates});showToast("Tank updated.");await refreshData();el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");scrollToEl("cameraCard");}
     catch(err){showToast(err.message);await refreshData();}
   });
   on("scanAgainBtn","click",()=>{el("scanResult").innerHTML="";});
@@ -314,7 +318,8 @@ function renderKnownTankUpdate(t){
 function renderNewTankSetup(barcode){
   if(!el("scanResult"))return;
   el("scanResult").innerHTML=`
-    <div class="card warning">
+    <div class="card success">
+      <div class="scan-banner">✅ New barcode scanned</div>
       <h2>New tank detected</h2>
       <p>This barcode is not in the shared inventory yet. The Tank ID will be the barcode.</p>
       <label>Barcode / Tank ID</label>
@@ -335,17 +340,17 @@ function renderNewTankSetup(barcode){
   on("newRoomSelect","change",()=>{toggleAddNewInput("newRoomSelect","newRoomNew");populatePositionSelectFor("newRoomSelect","newRoomNew","newPositionSelect","newPositionNew");});
   on("newRoomNew","input",()=>populatePositionSelectFor("newRoomSelect","newRoomNew","newPositionSelect","newPositionNew"));
   on("newPositionSelect","change",()=>toggleAddNewInput("newPositionSelect","newPositionNew"));
-  toggleAddNewInput("newGasSelect","newGasNew");
-  toggleAddNewInput("newRoomSelect","newRoomNew");
-  toggleAddNewInput("newPositionSelect","newPositionNew");
+  toggleAddNewInput("newGasSelect","newGasNew",false);
+  toggleAddNewInput("newRoomSelect","newRoomNew",false);
+  toggleAddNewInput("newPositionSelect","newPositionNew",false);
   on("saveNewTankBtn","click",async()=>{
     const tank={"Barcode":el("newBarcode").value.trim(),"Tank ID":el("newBarcode").value.trim(),"Gas":selectedOrNew("newGasSelect","newGasNew"),"Room":selectedOrNew("newRoomSelect","newRoomNew"),"Position":selectedOrNew("newPositionSelect","newPositionNew"),"Status":el("newStatus").value,"Updated By":el("newUpdatedBy").value.trim()};
     if(!tank["Barcode"]||!tank["Gas"]||!tank["Room"]||!tank["Position"]){showToast("Barcode, gas, room, and position are required.");return;}
     if(tank["Updated By"]){localStorage.setItem(STORAGE_KEYS.defaultUser,tank["Updated By"]);if(el("defaultUserInput"))el("defaultUserInput").value=tank["Updated By"];if(el("addUpdatedBy"))el("addUpdatedBy").value=tank["Updated By"];}
     const now=new Date().toISOString();
-    tanks.push({...tank,"Date Added":now,"Date Set In Use":tank["Status"]==="In Use"?now:"","Date Emptied":tank["Status"]==="Empty"?now:"","Last Modified":now});
+    tanks.push({...tank,"Date Added":now,"Date Set In Use":tank["Status"]==="In Use"?now:"","Date Emptied":tank["Status"]==="Empty"?now:"","Last Modified":now,"Event Type":"add","Event ID":"local-"+Date.now()});
     renderResults();populateAllOptions();showToast("Saving new tank...");
-    try{await api("addTank",{tank});showToast("New tank added.");await refreshData();el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");}
+    try{await api("addTank",{tank});showToast("New tank added.");await refreshData();el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");scrollToEl("cameraCard");}
     catch(err){showToast(err.message);await refreshData();}
   });
   on("scanAgainBtn","click",()=>{el("scanResult").innerHTML="";});
@@ -357,9 +362,9 @@ async function addTankFromForm(){
   if(!tank["Barcode"]||!tank["Gas"]||!tank["Room"]||!tank["Position"]){showToast("Barcode, gas, room, and position are required.");return;}
   if(tank["Updated By"]){localStorage.setItem(STORAGE_KEYS.defaultUser,tank["Updated By"]);if(el("defaultUserInput"))el("defaultUserInput").value=tank["Updated By"];}
   const now=new Date().toISOString();
-  tanks.push({...tank,"Date Added":now,"Date Set In Use":tank["Status"]==="In Use"?now:"","Date Emptied":tank["Status"]==="Empty"?now:"","Last Modified":now});
+  tanks.push({...tank,"Date Added":now,"Date Set In Use":tank["Status"]==="In Use"?now:"","Date Emptied":tank["Status"]==="Empty"?now:"","Last Modified":now,"Event Type":"add","Event ID":"local-"+Date.now()});
   renderResults();populateAllOptions();showToast("Saving tank...");
-  try{await api("addTank",{tank});showToast("Tank added.");clearAddForm();await refreshData();showView("searchView");}
+  try{await api("addTank",{tank});showToast("Tank added.");clearAddForm();await refreshData();showView("scanView");scrollToEl("cameraCard");}
   catch(err){showToast(err.message);await refreshData();}
 }
 
@@ -376,8 +381,10 @@ function clearAddForm(){
   populateAddDropdowns();
 }
 
+function scrollToEl(id){const node=el(id);if(node)node.scrollIntoView({behavior:"smooth",block:"start"});}
+
 function downloadCsv(){
-  const headers=["Barcode","Tank ID","Gas","Room","Position","Status","Date Added","Date Set In Use","Date Emptied","Last Modified","Updated By"];
+  const headers=["Barcode","Tank ID","Gas","Room","Position","Status","Date Added","Date Set In Use","Date Emptied","Last Modified","Updated By","Event ID","Event Type"];
   const rows=tanks.map(t=>headers.map(h=>csvEscape(t[h]||"")).join(","));
   const csv=[headers.join(","),...rows].join("\n");
   const blob=new Blob([csv],{type:"text/csv"});

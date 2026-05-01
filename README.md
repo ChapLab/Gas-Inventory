@@ -1,13 +1,15 @@
-# ChapLab Gas Tank Inventory v5
+# ChapLab Gas Tank Inventory v6
 
-Updates:
-- Gas, Room, and Position are now true dropdown menus.
-- Each dropdown has `Add new...`.
-- Selecting `Add new...` reveals a textbox underneath.
-- Position dropdown only shows positions already associated with the selected room.
-- The sheet/app uses `Position` consistently.
-- Tank ID is always the barcode.
-- Scanner stays open after scanning to reduce repeated camera permission prompts.
+Fixes and changes:
+- Backend is append-only. Every add/update creates a new event row first.
+- The app shows only the latest event per barcode.
+- Older events are moved to the `Overflow` tab instead of being deleted.
+- Uses a script lock to prevent two simultaneous updates from corrupting the sheet.
+- Current status button is disabled/grayed out in Search cards.
+- Scanner gives a clearer success message and scrolls to the form after scanning.
+- After Add/Save, the app scrolls back to the camera card.
+- Room typing no longer steals focus on every character.
+- Scanner attempts continuous autofocus through browser constraints, but true tap-to-focus is not reliably exposed by mobile browsers.
 
 Upload to GitHub Pages:
 - index.html
@@ -19,3 +21,7 @@ Paste into Apps Script:
 
 Then redeploy Apps Script:
 Deploy → Manage deployments → Edit → New version → Deploy
+
+Sheet tabs:
+- Tanks = latest row per barcode only
+- Overflow = older event rows

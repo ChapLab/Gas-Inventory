@@ -1,4 +1,5 @@
-const SHEET_NAME = "Tanks";
+const CURRENT_SHEET_NAME = "Tanks";
+const OVERFLOW_SHEET_NAME = "Overflow";
 const HEADERS = [
   "Barcode",
   "Tank ID",
@@ -10,7 +11,9 @@ const HEADERS = [
   "Date Set In Use",
   "Date Emptied",
   "Last Modified",
-  "Updated By"
+  "Updated By",
+  "Event ID",
+  "Event Type"
 ];
 
 const LEGACY_HEADER_MAP = {
@@ -20,30 +23,37 @@ const LEGACY_HEADER_MAP = {
 
 function doGet(e) {
   try {
-    const action = e.parameter.action;
-    const callback = e.parameter.callback;
-    const payload = e.parameter.payload ? JSON.parse(e.parameter.payload) : {};
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
 
-    let result;
+    try {
+      const action = e.parameter.action;
+      const callback = e.parameter.callback;
+      const payload = e.parameter.payload ? JSON.parse(e.parameter.payload) : {};
 
-    if (!action) {
-      result = { ok: true, message: "Gas Tank Inventory API is running." };
-    } else if (action === "list") {
-      result = { ok: true, tanks: getTanks() };
-    } else if (action === "updateStatus") {
-      updateStatus(payload.barcode, payload.status, payload.updatedBy);
-      result = { ok: true };
-    } else if (action === "updateFull") {
-      updateFull(payload.barcode, payload.tank);
-      result = { ok: true };
-    } else if (action === "addTank") {
-      addTank(payload.tank);
-      result = { ok: true };
-    } else {
-      result = { ok: false, error: "Unknown action: " + action };
+      let result;
+
+      if (!action) {
+        result = { ok: true, message: "Gas Tank Inventory API is running." };
+      } else if (action === "list") {
+        result = { ok: true, tanks: getCurrentTanks() };
+      } else if (action === "updateStatus") {
+        appendStatusUpdate(payload.barcode, payload.status, payload.updatedBy);
+        result = { ok: true };
+      } else if (action === "updateFull") {
+        appendFullUpdate(payload.barcode, payload.tank);
+        result = { ok: true };
+      } else if (action === "addTank") {
+        appendNewTank(payload.tank);
+        result = { ok: true };
+      } else {
+        result = { ok: false, error: "Unknown action: " + action };
+      }
+
+      return outputResult(result, callback);
+    } finally {
+      lock.releaseLock();
     }
-
-    return outputResult(result, callback);
   } catch (err) {
     return outputResult({ ok: false, error: err.message }, e.parameter.callback);
   }
@@ -61,21 +71,41 @@ function outputResult(result, callback) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function getSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME);
+function getSpreadsheet() {
+  return SpreadsheetApp.getActiveSpreadsheet();
+}
 
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-  }
-
-  migrateHeaders(sheet);
+function getOrCreateSheet(name) {
+  const ss = getSpreadsheet();
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
+  ensureHeaders(sheet);
   return sheet;
 }
 
-function migrateHeaders(sheet) {
+function ensureHeaders(sheet) {
   const lastCol = Math.max(sheet.getLastColumn(), 1);
   const existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  const hasAnyHeader = existingHeaders.some(h => h.trim() !== "");
+
+  if (!hasAnyHeader) {
+    sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+    sheet.setFrozenRows(1);
+    return;
+  }
+
+  const missing = HEADERS.some(h => !existingHeaders.includes(h));
+  const hasLegacy = existingHeaders.some(h => LEGACY_HEADER_MAP[h]);
+
+  if (missing || hasLegacy || existingHeaders.length !== HEADERS.length) {
+    migrateSheetToHeaders(sheet, existingHeaders);
+  } else {
+    sheet.setFrozenRows(1);
+  }
+}
+
+function migrateSheetToHeaders(sheet, existingHeaders) {
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
   const lastRow = sheet.getLastRow();
   const dataRows = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, lastCol).getValues() : [];
 
@@ -96,10 +126,15 @@ function migrateHeaders(sheet) {
   }
 }
 
-function getTanks() {
-  const sheet = getSheet();
-  const lastRow = sheet.getLastRow();
+function getAllEvents() {
+  const current = readSheetRows(getOrCreateSheet(CURRENT_SHEET_NAME));
+  const overflow = readSheetRows(getOrCreateSheet(OVERFLOW_SHEET_NAME));
+  return current.concat(overflow).filter(row => normalizeBarcode(row["Barcode"]));
+}
 
+function readSheetRows(sheet) {
+  ensureHeaders(sheet);
+  const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
 
   const values = sheet.getRange(2, 1, lastRow - 1, HEADERS.length).getValues();
@@ -109,72 +144,83 @@ function getTanks() {
     .map(row => {
       const obj = {};
       HEADERS.forEach((header, i) => {
-        obj[header] = row[i] instanceof Date ? row[i].toISOString() : String(row[i] || "");
+        obj[header] = row[i];
       });
       return obj;
     });
 }
 
-function updateStatus(barcode, status, updatedBy) {
-  barcode = normalizeBarcode(barcode);
-  validateStatus(status);
+function getCurrentTanks() {
+  const events = getAllEvents();
+  const latest = latestByBarcode(events);
+  rebuildSheetsFromEvents(events);
+  return Object.values(latest).map(rowToClientObject);
+}
 
-  const sheet = getSheet();
-  const row = findRowByBarcode(sheet, barcode);
+function latestByBarcode(events) {
+  const latest = {};
 
-  if (row < 0) throw new Error("Barcode not found: " + barcode);
+  events.forEach(row => {
+    const barcode = normalizeBarcode(row["Barcode"]);
+    if (!barcode) return;
 
-  const now = new Date();
+    if (!row["Event ID"]) row["Event ID"] = Utilities.getUuid();
+    if (!row["Tank ID"]) row["Tank ID"] = barcode;
 
-  setCell(sheet, row, "Tank ID", barcode);
-  setCell(sheet, row, "Status", status);
-  setCell(sheet, row, "Last Modified", now);
-  setCell(sheet, row, "Updated By", updatedBy || "");
+    const candidateTime = eventTime(row);
+    const existingTime = latest[barcode] ? eventTime(latest[barcode]) : -1;
 
-  if (status === "In Use") {
-    setCell(sheet, row, "Date Set In Use", now);
-  }
+    if (!latest[barcode] || candidateTime >= existingTime) {
+      latest[barcode] = row;
+    }
+  });
 
-  if (status === "Empty") {
-    setCell(sheet, row, "Date Emptied", now);
+  return latest;
+}
+
+function rebuildSheetsFromEvents(events) {
+  const latest = latestByBarcode(events);
+  const currentRows = [];
+  const overflowRows = [];
+
+  events.forEach(row => {
+    const barcode = normalizeBarcode(row["Barcode"]);
+    if (!barcode) return;
+
+    const latestEventId = latest[barcode] && latest[barcode]["Event ID"];
+    const isLatest = String(row["Event ID"]) === String(latestEventId);
+
+    if (isLatest) currentRows.push(row);
+    else overflowRows.push(row);
+  });
+
+  writeRows(getOrCreateSheet(CURRENT_SHEET_NAME), currentRows);
+  writeRows(getOrCreateSheet(OVERFLOW_SHEET_NAME), overflowRows);
+}
+
+function writeRows(sheet, rows) {
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+  sheet.setFrozenRows(1);
+
+  if (rows.length > 0) {
+    const values = rows
+      .sort((a, b) => eventTime(b) - eventTime(a))
+      .map(row => HEADERS.map(header => row[header] || ""));
+    sheet.getRange(2, 1, values.length, HEADERS.length).setValues(values);
   }
 }
 
-function updateFull(barcode, tank) {
-  if (!tank) throw new Error("Missing tank update.");
-
-  barcode = normalizeBarcode(barcode);
-  validateStatus(tank["Status"]);
-
-  const sheet = getSheet();
-  const row = findRowByBarcode(sheet, barcode);
-
-  if (row < 0) throw new Error("Barcode not found: " + barcode);
-
-  const now = new Date();
-
-  setCell(sheet, row, "Tank ID", barcode);
-  setCell(sheet, row, "Gas", tank["Gas"] || getCell(sheet, row, "Gas"));
-  setCell(sheet, row, "Room", tank["Room"] || "");
-  setCell(sheet, row, "Position", tank["Position"] || "");
-  setCell(sheet, row, "Status", tank["Status"] || "");
-  setCell(sheet, row, "Updated By", tank["Updated By"] || "");
-  setCell(sheet, row, "Last Modified", now);
-
-  if (tank["Status"] === "In Use") {
-    setCell(sheet, row, "Date Set In Use", now);
-  }
-
-  if (tank["Status"] === "Empty") {
-    setCell(sheet, row, "Date Emptied", now);
-  }
+function appendEvent(rowObj) {
+  const events = getAllEvents();
+  events.push(rowObj);
+  rebuildSheetsFromEvents(events);
 }
 
-function addTank(tank) {
+function appendNewTank(tank) {
   if (!tank) throw new Error("Missing tank object.");
 
   const barcode = normalizeBarcode(tank["Barcode"]);
-
   if (!barcode) throw new Error("Barcode is required.");
   if (!tank["Gas"]) throw new Error("Gas is required.");
   if (!tank["Room"]) throw new Error("Room is required.");
@@ -182,12 +228,6 @@ function addTank(tank) {
 
   const status = tank["Status"] || "New";
   validateStatus(status);
-
-  const sheet = getSheet();
-
-  if (findRowByBarcode(sheet, barcode) > 0) {
-    throw new Error("That barcode already exists.");
-  }
 
   const now = new Date();
 
@@ -202,38 +242,88 @@ function addTank(tank) {
     "Date Set In Use": status === "In Use" ? now : "",
     "Date Emptied": status === "Empty" ? now : "",
     "Last Modified": now,
-    "Updated By": tank["Updated By"] || ""
+    "Updated By": tank["Updated By"] || "",
+    "Event ID": Utilities.getUuid(),
+    "Event Type": "add"
   };
 
-  const row = HEADERS.map(header => rowObj[header] || "");
-  sheet.appendRow(row);
+  appendEvent(rowObj);
 }
 
-function findRowByBarcode(sheet, barcode) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return -1;
+function appendStatusUpdate(barcode, status, updatedBy) {
+  barcode = normalizeBarcode(barcode);
+  validateStatus(status);
 
-  const barcodes = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const current = latestByBarcode(getAllEvents())[barcode];
+  if (!current) throw new Error("Barcode not found: " + barcode);
 
-  for (let i = 0; i < barcodes.length; i++) {
-    if (normalizeBarcode(barcodes[i][0]) === barcode) {
-      return i + 2;
-    }
-  }
+  const now = new Date();
 
-  return -1;
+  const rowObj = cloneRow(current);
+  rowObj["Barcode"] = barcode;
+  rowObj["Tank ID"] = barcode;
+  rowObj["Status"] = status;
+  rowObj["Last Modified"] = now;
+  rowObj["Updated By"] = updatedBy || "";
+  rowObj["Event ID"] = Utilities.getUuid();
+  rowObj["Event Type"] = "status";
+
+  if (status === "In Use") rowObj["Date Set In Use"] = now;
+  if (status === "Empty") rowObj["Date Emptied"] = now;
+
+  appendEvent(rowObj);
 }
 
-function setCell(sheet, row, header, value) {
-  const col = HEADERS.indexOf(header) + 1;
-  if (col < 1) throw new Error("Unknown header: " + header);
-  sheet.getRange(row, col).setValue(value);
+function appendFullUpdate(barcode, tank) {
+  if (!tank) throw new Error("Missing tank update.");
+
+  barcode = normalizeBarcode(barcode);
+  validateStatus(tank["Status"]);
+
+  const current = latestByBarcode(getAllEvents())[barcode];
+  if (!current) throw new Error("Barcode not found: " + barcode);
+
+  const now = new Date();
+
+  const rowObj = cloneRow(current);
+  rowObj["Barcode"] = barcode;
+  rowObj["Tank ID"] = barcode;
+  rowObj["Gas"] = tank["Gas"] || current["Gas"] || "";
+  rowObj["Room"] = tank["Room"] || "";
+  rowObj["Position"] = tank["Position"] || "";
+  rowObj["Status"] = tank["Status"] || "";
+  rowObj["Updated By"] = tank["Updated By"] || "";
+  rowObj["Last Modified"] = now;
+  rowObj["Event ID"] = Utilities.getUuid();
+  rowObj["Event Type"] = "update";
+
+  if (tank["Status"] === "In Use") rowObj["Date Set In Use"] = now;
+  if (tank["Status"] === "Empty") rowObj["Date Emptied"] = now;
+
+  appendEvent(rowObj);
 }
 
-function getCell(sheet, row, header) {
-  const col = HEADERS.indexOf(header) + 1;
-  if (col < 1) throw new Error("Unknown header: " + header);
-  return sheet.getRange(row, col).getValue();
+function cloneRow(row) {
+  const obj = {};
+  HEADERS.forEach(h => obj[h] = row[h] || "");
+  return obj;
+}
+
+function rowToClientObject(row) {
+  const obj = {};
+  HEADERS.forEach(header => {
+    const value = row[header];
+    obj[header] = value instanceof Date ? value.toISOString() : String(value || "");
+  });
+  return obj;
+}
+
+function eventTime(row) {
+  const value = row["Last Modified"] || row["Date Added"];
+  if (value instanceof Date) return value.getTime();
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 function normalizeBarcode(value) {
@@ -242,7 +332,6 @@ function normalizeBarcode(value) {
 
 function validateStatus(status) {
   const allowed = ["New", "In Use", "Empty"];
-
   if (!allowed.includes(status)) {
     throw new Error("Invalid status. Use New, In Use, or Empty.");
   }
