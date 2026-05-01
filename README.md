@@ -38,3 +38,13 @@ Keep the same Web App URL.
 - Camera scans are now buffered for 0.5 seconds.
 - The app collects up to 5 reads at roughly 0.1 second intervals.
 - It chooses the most repeated barcode; if tied, it uses the longest raw read to avoid partial barcode reads.
+
+
+## v16 changes
+- After the scanner confirms a barcode, scanning pauses while keeping the camera open.
+- Scanning resumes only after:
+  - Add new tank succeeds
+  - Save update succeeds
+  - Clear form is pressed
+  - Stop scanner is pressed
+- This prevents the camera from immediately scanning another barcode and wiping the open form.
