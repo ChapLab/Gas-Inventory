@@ -1,148 +1,49 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Gas Tank Inventory</title>
-  <link rel="stylesheet" href="style.css" />
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChapLab Tanks</title>
 </head>
 <body>
-  <header class="app-header">
-    <div>
-      <h1>ChapLab Tanks</h1>
-      <p id="connectionStatus">Not connected yet</p>
-    </div>
-    <button id="refreshBtn" class="small-btn">Refresh</button>
-  </header>
+<h2>ChapLab Tank Scanner</h2>
 
-  <main>
-    <section id="setupCard" class="card warning">
-      <h2>Setup needed</h2>
-      <p>Paste your Google Apps Script Web App URL below. You only need to do this once per phone.</p>
-      <input id="scriptUrlInput" placeholder="https://script.google.com/macros/s/..." />
-      <button id="saveScriptUrlBtn">Save connection</button>
-    </section>
+<input id="scriptUrlInput" placeholder="Paste Apps Script URL">
+<button onclick="saveScriptUrl(document.getElementById('scriptUrlInput').value)">Connect</button>
 
-    <nav class="tabs">
-      <button class="tab active" data-view="scanView">Scan</button>
-      <button class="tab" data-view="searchView">Search</button>
-      <button class="tab" data-view="addView">Add</button>
-      <button class="tab" data-view="settingsView">Settings</button>
-    </nav>
+<br><br>
 
-    <section id="searchView" class="view">
-      <div class="card">
-        <label for="searchInput">Search tanks</label>
-        <input id="searchInput" placeholder="Argon, room 401, empty, barcode..." />
+<input id="manualBarcodeInput" placeholder="Enter barcode">
+<button onclick="handleBarcode(document.getElementById('manualBarcodeInput').value)">Scan</button>
 
-        <div class="filters">
-          <select id="gasFilter">
-            <option value="">All gases</option>
-          </select>
-          <select id="statusFilter">
-            <option value="">All statuses</option>
-            <option value="New">New</option>
-            <option value="In Use">In Use</option>
-            <option value="Empty">Empty</option>
-          </select>
-          <select id="roomFilter">
-            <option value="">All rooms</option>
-          </select>
-        </div>
+<div id="scanResult"></div>
 
-        <div class="quick-filters">
-          <button data-status="">All</button>
-          <button data-status="New">New</button>
-          <button data-status="In Use">In Use</button>
-          <button data-status="Empty">Empty</button>
-        </div>
-      </div>
+<script src="app.js"></script>
+<script>
+function saveScriptUrl(url){
+  localStorage.setItem("gasTankScriptUrl", url);
+}
 
-      <div id="resultsSummary" class="summary"></div>
-      <div id="tankResults" class="tank-list"></div>
-    </section>
+function getScriptUrl(){
+  return localStorage.getItem("gasTankScriptUrl");
+}
 
-    <section id="scanView" class="view active">
-      <div class="card">
-        <h2>Scan barcode</h2>
-        <p>Point the camera at the barcode. If scanning fails, enter it manually.</p>
-        <button id="startScanBtn">Start scanner</button>
-        <button id="stopScanBtn" class="secondary hidden">Stop scanner</button>
-        <div id="reader" class="reader hidden"></div>
+let tanks = [];
 
-        <label for="manualBarcodeInput">Manual barcode</label>
-        <div class="inline">
-          <input id="manualBarcodeInput" placeholder="Type barcode number" />
-          <button id="manualLookupBtn">Look up</button>
-        </div>
-      </div>
+async function load(){
+  const data = await api("list");
+  tanks = data.tanks || [];
+}
 
-      <div id="scanResult"></div>
-    </section>
+load();
 
-    <section id="addView" class="view">
-      <div class="card">
-        <h2>Add new tank</h2>
-        <p>Add a tank if the barcode is not already in the list.</p>
-
-        <label>Barcode</label>
-        <input id="addBarcode" placeholder="Barcode" />
-
-        <label>Tank ID / label</label>
-        <input id="addTankId" placeholder="Example: Ar-001" />
-
-        <label>Gas</label>
-        <input id="addGas" list="gasOptions" placeholder="Example: Argon" />
-        <datalist id="gasOptions"></datalist>
-
-        <label>Room</label>
-        <input id="addRoom" list="roomOptions" placeholder="Example: Chem 401" />
-        <datalist id="roomOptions"></datalist>
-
-        <label>Specific position</label>
-        <input id="addPosition" list="positionOptions" placeholder="Example: Back wall, left rack" />
-        <datalist id="positionOptions"></datalist>
-
-        <label>Status</label>
-        <select id="addStatus">
-          <option>New</option>
-          <option>In Use</option>
-          <option>Empty</option>
-        </select>
-
-        <label>Updated by</label>
-        <input id="addUpdatedBy" placeholder="Your initials" />
-
-        <button id="addTankBtn">Add tank</button>
-      </div>
-    </section>
-
-    <section id="settingsView" class="view">
-      <div class="card">
-        <h2>Settings</h2>
-
-        <label>Google Apps Script Web App URL</label>
-        <input id="settingsScriptUrlInput" placeholder="https://script.google.com/macros/s/..." />
-        <button id="settingsSaveUrlBtn">Save URL</button>
-
-        <label>Your initials</label>
-        <input id="defaultUserInput" placeholder="Example: BS" />
-        <button id="saveDefaultUserBtn">Save initials</button>
-
-        <button id="downloadCsvBtn" class="secondary">Download local CSV backup</button>
-      </div>
-
-      <div class="card">
-        <h2>Sheet columns</h2>
-        <p>Your Google Sheet tab must be named <b>Tanks</b> and use these headers:</p>
-        <pre>Barcode | Tank ID | Gas | Room | Position | Status | Last Updated | Updated By</pre>
-      </div>
-    </section>
-  </main>
-
-  <div id="toast" class="toast hidden"></div>
-
-  <script src="app.js"></script>
+function handleBarcode(code){
+  const found = tanks.find(t => t.Barcode == code);
+  if(found){
+    document.getElementById("scanResult").innerHTML = "FOUND: " + found["Gas"];
+  } else {
+    document.getElementById("scanResult").innerHTML = "NEW TANK";
+  }
+}
+</script>
 </body>
 </html>
