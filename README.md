@@ -24,3 +24,11 @@ If your old sheet stored barcodes as numbers and stripped leading zeros, the app
 - Scanning now calls `lookup` in Apps Script before deciding a barcode is new.
 - `lookup` checks both `Tanks` and `Overflow` and returns the latest event for that barcode.
 - Barcode matching now ignores spaces, hyphens, underscores, and periods.
+
+
+## v10 changes
+- Lookup checks both Barcode and Tank ID.
+- Barcode matching removes all non-letter/non-number characters and uppercases both sides.
+- Scanner shows the raw scanned barcode in the form for debugging.
+- Apps Script formats Barcode and Tank ID columns as plain text to avoid Google Sheets rounding long numeric barcodes.
+- If lookup fails, the app does not assume the tank is new.

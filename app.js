@@ -266,35 +266,44 @@ async function handleBarcode(rawBarcode){
     return;
   }
 
-  const barcode=normBarcode(rawBarcode);
+  const raw=String(rawBarcode||"").trim();
+  const barcode=normBarcode(raw);
   if(!barcode){showToast("No barcode entered.");return;}
 
   showToast("Checking barcode...");
 
-  let found=tanks.find(t=>normBarcode(t["Barcode"])===barcode);
+  let found=tanks.find(t=>normBarcode(t["Barcode"])===barcode || normBarcode(t["Tank ID"])===barcode);
+  let lookupFailed=false;
 
   if(getScriptUrl()){
     try{
-      const data=await api("lookup",{barcode});
+      const data=await api("lookup",{barcode:raw,normalizedBarcode:barcode});
       if(data.tank){
         found=data.tank;
-        const index=tanks.findIndex(t=>normBarcode(t["Barcode"])===barcode);
+        const index=tanks.findIndex(t=>normBarcode(t["Barcode"])===barcode || normBarcode(t["Tank ID"])===barcode);
         if(index>=0)tanks[index]=found;
         else tanks.push(found);
         populateAllOptions();
         renderResults();
       }
     }catch(err){
+      lookupFailed=true;
+      showToast("Lookup failed: " + err.message);
       console.warn(err);
     }
   }
 
   if(found){
     showToast("✅ Existing tank found.");
-    renderKnownTankUpdate(found);
+    renderKnownTankUpdate(found, raw, barcode);
+  }else if(lookupFailed){
+    if(el("scanResult")){
+      el("scanResult").innerHTML=`<div class="card warning"><h2>Could not check barcode</h2><p>The sheet lookup failed, so I am not opening a new-tank form yet.</p><p>Scanned: <b>${escapeHtml(raw)}</b></p><p>Normalized: <b>${escapeHtml(barcode)}</b></p><button id="retryLookupBtn">Retry lookup</button></div>`;
+      on("retryLookupBtn","click",()=>handleBarcode(raw));
+    }
   }else{
     showToast("New barcode detected.");
-    renderNewTankSetup(barcode);
+    renderNewTankSetup(barcode, raw);
   }
 
   setTimeout(()=>scrollToEl("scanResult"),100);
@@ -315,7 +324,7 @@ function buildValueSelect(fieldName,selectId,newInputId,values,currentValue,plac
   `;
 }
 
-function renderKnownTankUpdate(t){
+function renderKnownTankUpdate(t, rawScanned="", normalizedScanned=""){
   if(!el("scanResult"))return;
   el("scanResult").dataset.saved="false";
   const gases=uniqueValues("Gas"),rooms=uniqueValues("Room"),positions=positionsForRoom(t["Room"]);
@@ -366,7 +375,7 @@ function renderKnownTankUpdate(t){
   on("scanAgainBtn","click",()=>{el("scanResult").innerHTML="";});
 }
 
-function renderNewTankSetup(barcode){
+function renderNewTankSetup(barcode, rawScanned=""){
   barcode=normalizeBarcode(barcode);
   if(!el("scanResult"))return;
   el("scanResult").dataset.saved="false";
@@ -374,6 +383,7 @@ function renderNewTankSetup(barcode){
     <div class="card success">
       <div class="scan-banner">✅ New barcode scanned</div>
       <h2>New tank detected</h2>
+      ${rawScanned?`<p>Scanned: <b>${escapeHtml(rawScanned)}</b></p>`:""}
       <p>This barcode is not in the shared inventory yet. The Tank ID will be the barcode.</p>
       <label>Barcode / Tank ID</label>
       <input id="newBarcode" value="${escapeAttr(barcode)}" readonly />
