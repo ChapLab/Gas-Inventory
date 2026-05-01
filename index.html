@@ -65,6 +65,26 @@
         </div>
       </div>
 
+
+      <div class="card" id="photoModeCard">
+        <h2>Scan from photo</h2>
+        <p>Take or upload a photo, then drag, pinch-zoom, and rotate until the barcode is straight and centered. The scanner will use a larger buffered area than the guide box.</p>
+
+        <input id="photoInput" type="file" accept="image/*" capture="environment" />
+
+        <div id="photoStage" class="photo-stage">
+          <canvas id="photoCanvas" class="photo-canvas"></canvas>
+          <div id="photoGuide" class="photo-guide"></div>
+        </div>
+
+        <div class="photo-controls">
+          <button id="photoRotateLeftBtn" class="secondary" type="button">⟲ Rotate</button>
+          <button id="photoRotateRightBtn" class="secondary" type="button">Rotate ⟳</button>
+          <button id="photoResetBtn" class="secondary" type="button">Reset</button>
+          <button id="scanPhotoBtn" type="button">Scan photo</button>
+        </div>
+      </div>
+
       <div id="scanResult"></div>
     </section>
 
@@ -155,6 +175,6 @@
     <div id="toast" class="toast hidden"></div>
   </main>
 
-  <script src="app.js?v=17"></script>
+  <script src="app.js?v=18"></script>
 </body>
 </html>
