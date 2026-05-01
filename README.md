@@ -38,9 +38,3 @@ Keep the same Web App URL.
 - Camera scans are now buffered for 0.5 seconds.
 - The app collects up to 5 reads at roughly 0.1 second intervals.
 - It chooses the most repeated barcode; if tied, it uses the longest raw read to avoid partial barcode reads.
-
-
-## v15 scanner buffer change
-- The actual scan region is larger: 360 × 220.
-- A smaller green center target is shown visually so users aim in the middle, while the scanner still has buffer around it.
-- If the same barcode is read twice, the app accepts it immediately. Otherwise it waits up to 0.5 seconds and picks the best read.

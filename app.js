@@ -9,6 +9,7 @@ var lastScanned="";
 var scanCooldown=false;
 var appBusy=false;
 var scanBuffer=[];
+var scanStartTime=0;
 var scanBufferTimer=null;
 var scanCollecting=false;
 
@@ -643,9 +644,29 @@ function clearAddForm(){
 
 function queueScanResult(decodedText){
   if(isBusy()){
-    showToast("Still saving the previous tank. Try again in a second.");
+    showToast("Still saving previous tank.");
     return;
   }
+
+  const raw=String(decodedText||"").trim();
+  if(!raw) return;
+
+  if(!scanCollecting){
+    scanCollecting=true;
+    scanBuffer=[];
+    scanStartTime=Date.now();
+
+    setTimeout(()=>finalizeScanBuffer(),200);
+  }
+
+  if(scanBuffer.length < 2){
+    scanBuffer.push(raw);
+  }
+
+  if(scanBuffer.length >= 2){
+    finalizeScanBuffer();
+  }
+}
 
   const raw=String(decodedText||"").trim();
   if(!raw)return;
@@ -666,20 +687,34 @@ function queueScanResult(decodedText){
     scanBuffer.push(raw);
   }
 
-  if(scanBuffer.length>=5 || hasTwoMatchingReads(scanBuffer)){
+  if(scanBuffer.length>=5){
     finalizeScanBuffer();
   }
 }
 
 function finalizeScanBuffer(){
-  if(!scanCollecting)return;
-
+  if(!scanCollecting) return;
   scanCollecting=false;
 
-  if(scanBufferTimer){
-    clearTimeout(scanBufferTimer);
-    scanBufferTimer=null;
+  const reads=scanBuffer.slice(0,2);
+  scanBuffer=[];
+
+  if(reads.length===0){
+    showToast("No barcode captured.");
+    return;
   }
+
+  let chosen;
+
+  if(reads.length===2 && reads[0] === reads[1]){
+    chosen = reads[0]; // instant accept if identical
+  } else {
+    chosen = reads.sort((a,b)=>b.length-a.length)[0]; // fallback longest
+  }
+
+  showToast("Barcode confirmed");
+  handleBarcode(chosen);
+}
 
   const reads=scanBuffer.slice(0,5);
   scanBuffer=[];
@@ -692,17 +727,6 @@ function finalizeScanBuffer(){
   const chosen=chooseBestBarcode(reads);
   showToast(`Barcode confirmed: ${chosen}`);
   handleBarcode(chosen);
-}
-
-function hasTwoMatchingReads(reads){
-  const counts={};
-  for(const raw of reads){
-    const n=normBarcode(raw);
-    if(!n)continue;
-    counts[n]=(counts[n]||0)+1;
-    if(counts[n]>=2)return true;
-  }
-  return false;
 }
 
 function chooseBestBarcode(reads){
@@ -750,7 +774,7 @@ function startScanner(){
 
   scanner=new Html5QrcodeScanner("reader",{
     fps:10,
-    qrbox:{width:360,height:220},
+    qrbox:(viewfinderWidth, viewfinderHeight)=>{ return {width:Math.floor(viewfinderWidth*0.5), height:Math.floor(viewfinderHeight*0.2)}; },
     rememberLastUsedCamera:true,
     supportedScanTypes:[Html5QrcodeScanType.SCAN_TYPE_CAMERA],
     formatsToSupport:[
