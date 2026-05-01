@@ -261,14 +261,42 @@ async function stopScanner(){
 }
 
 async function handleBarcode(rawBarcode){
-  const barcode=normalizeBarcode(rawBarcode);
+  if(isSaving){
+    showToast("Still saving the previous tank. Try again in a second.");
+    return;
+  }
+
+  const barcode=normBarcode(rawBarcode);
   if(!barcode){showToast("No barcode entered.");return;}
 
   showToast("Checking barcode...");
-  await refreshData({silent:true});
 
-  const found=tanks.find(t=>normalizeBarcode(t["Barcode"])===barcode||normalizeBarcode(t["Tank ID"])===barcode);
-  if(found)renderKnownTankUpdate(found);else renderNewTankSetup(barcode);
+  let found=tanks.find(t=>normBarcode(t["Barcode"])===barcode);
+
+  if(getScriptUrl()){
+    try{
+      const data=await api("lookup",{barcode});
+      if(data.tank){
+        found=data.tank;
+        const index=tanks.findIndex(t=>normBarcode(t["Barcode"])===barcode);
+        if(index>=0)tanks[index]=found;
+        else tanks.push(found);
+        populateAllOptions();
+        renderResults();
+      }
+    }catch(err){
+      console.warn(err);
+    }
+  }
+
+  if(found){
+    showToast("✅ Existing tank found.");
+    renderKnownTankUpdate(found);
+  }else{
+    showToast("New barcode detected.");
+    renderNewTankSetup(barcode);
+  }
+
   setTimeout(()=>scrollToEl("scanResult"),100);
 }
 

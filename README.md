@@ -18,3 +18,9 @@ If your old sheet stored barcodes as numbers and stripped leading zeros, the app
 - Uses a lock so simultaneous requests queue safely.
 - App uses an `isSaving` guard so a new scan cannot wipe an in-progress add/update form.
 - The app does not force a full refresh after every successful save, so the form is not kicked out while saving.
+
+
+## v9 changes
+- Scanning now calls `lookup` in Apps Script before deciding a barcode is new.
+- `lookup` checks both `Tanks` and `Overflow` and returns the latest event for that barcode.
+- Barcode matching now ignores spaces, hyphens, underscores, and periods.

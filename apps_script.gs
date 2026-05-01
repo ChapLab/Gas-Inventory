@@ -37,6 +37,8 @@ function doGet(e) {
         result = { ok: true, message: "Gas Tank Inventory API is running." };
       } else if (action === "list") {
         result = { ok: true, tanks: getCurrentTanks() };
+      } else if (action === "lookup") {
+        result = { ok: true, tank: lookupTank(payload.barcode) };
       } else if (action === "updateStatus") {
         fastStatusUpdate(payload.barcode, payload.status, payload.updatedBy);
         result = { ok: true };
@@ -124,6 +126,27 @@ function migrateSheetToHeaders(sheet, existingHeaders) {
   if (newRows.length > 0) {
     sheet.getRange(2, 1, newRows.length, HEADERS.length).setValues(newRows);
   }
+}
+
+
+function lookupTank(barcode) {
+  barcode = normalizeBarcode(barcode);
+  if (!barcode) throw new Error("Barcode is required.");
+
+  const currentRows = readSheetRows(getOrCreateSheet(CURRENT_SHEET_NAME));
+  const overflowRows = readSheetRows(getOrCreateSheet(OVERFLOW_SHEET_NAME));
+  const matching = currentRows
+    .concat(overflowRows)
+    .filter(row => normalizeBarcode(row["Barcode"]) === barcode);
+
+  if (matching.length === 0) return null;
+
+  let latest = matching[0];
+  matching.forEach(row => {
+    if (eventTime(row) >= eventTime(latest)) latest = row;
+  });
+
+  return rowToClientObject(latest);
 }
 
 function getCurrentTanks() {
@@ -326,7 +349,7 @@ function eventTime(row) {
 }
 
 function normalizeBarcode(value) {
-  return String(value || "").trim().replace(/\s+/g, "");
+  return String(value || "").trim().replace(/[\s\-_.]/g, "");
 }
 
 function validateStatus(status) {
