@@ -26,9 +26,8 @@ If your old sheet stored barcodes as numbers and stripped leading zeros, the app
 - Barcode matching now ignores spaces, hyphens, underscores, and periods.
 
 
-## v10 changes
-- Lookup checks both Barcode and Tank ID.
-- Barcode matching removes all non-letter/non-number characters and uppercases both sides.
-- Scanner shows the raw scanned barcode in the form for debugging.
-- Apps Script formats Barcode and Tank ID columns as plain text to avoid Google Sheets rounding long numeric barcodes.
-- If lookup fails, the app does not assume the tank is new.
+## v11 fixes
+- Scan success toast no longer claims the form opened before rendering.
+- `handleBarcode()` is wrapped so errors show a visible card instead of silently failing.
+- Existing-tank lookup checks both Barcode and Tank ID with aggressive normalization.
+- The scanned raw barcode is shown in the form for debugging.

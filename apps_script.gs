@@ -38,7 +38,7 @@ function doGet(e) {
       } else if (action === "list") {
         result = { ok: true, tanks: getCurrentTanks() };
       } else if (action === "lookup") {
-        result = { ok: true, tank: lookupTank(payload.barcode || payload.normalizedBarcode) };
+        result = { ok: true, tank: lookupTank(payload.barcode) };
       } else if (action === "updateStatus") {
         fastStatusUpdate(payload.barcode, payload.status, payload.updatedBy);
         result = { ok: true };
@@ -93,7 +93,7 @@ function ensureHeaders(sheet) {
   if (!hasAnyHeader) {
     sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
     sheet.setFrozenRows(1);
-    formatSheet(sheet);
+  sheet.getRange("A:B").setNumberFormat("@");
     return;
   }
 
@@ -104,13 +104,7 @@ function ensureHeaders(sheet) {
     migrateSheetToHeaders(sheet, existingHeaders);
   } else {
     sheet.setFrozenRows(1);
-    formatSheet(sheet);
   }
-}
-
-function formatSheet(sheet) {
-  // Keep Barcode and Tank ID as plain text so long numeric barcodes are not rounded.
-  sheet.getRange(1, 1, Math.max(sheet.getMaxRows(), 1), 2).setNumberFormat("@");
 }
 
 function migrateSheetToHeaders(sheet, existingHeaders) {
@@ -129,7 +123,6 @@ function migrateSheetToHeaders(sheet, existingHeaders) {
   sheet.clearContents();
   sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
   sheet.setFrozenRows(1);
-  formatSheet(sheet);
 
   if (newRows.length > 0) {
     sheet.getRange(2, 1, newRows.length, HEADERS.length).setValues(newRows);
@@ -137,10 +130,9 @@ function migrateSheetToHeaders(sheet, existingHeaders) {
 }
 
 
-function lookupTank(barcodePayload) {
-  const raw = String(barcodePayload || "").trim();
-  const barcode = normalizeBarcode(raw);
-  if (!barcode) throw new Error("Barcode is required.");
+function lookupTank(barcode) {
+  const target = normalizeBarcode(barcode);
+  if (!target) throw new Error("Barcode is required.");
 
   const currentRows = readSheetRows(getOrCreateSheet(CURRENT_SHEET_NAME));
   const overflowRows = readSheetRows(getOrCreateSheet(OVERFLOW_SHEET_NAME));
@@ -148,9 +140,8 @@ function lookupTank(barcodePayload) {
   const matching = currentRows
     .concat(overflowRows)
     .filter(row => {
-      const rowBarcode = normalizeBarcode(row["Barcode"]);
-      const rowTankId = normalizeBarcode(row["Tank ID"]);
-      return rowBarcode === barcode || rowTankId === barcode;
+      return normalizeBarcode(row["Barcode"]) === target ||
+             normalizeBarcode(row["Tank ID"]) === target;
     });
 
   if (matching.length === 0) return null;
@@ -243,7 +234,6 @@ function fastAddTank(tank) {
 
   // Fast path: append new current row, then move the old row to Overflow.
   sheet.appendRow(rowToArray(rowObj));
-  formatSheet(sheet);
   if (existingRow > 0) moveRowsToOverflow(sheet, [existingRow]);
 }
 
@@ -271,7 +261,6 @@ function fastStatusUpdate(barcode, status, updatedBy) {
   if (status === "Empty") rowObj["Date Emptied"] = now;
 
   sheet.appendRow(rowToArray(rowObj));
-  formatSheet(sheet);
   moveRowsToOverflow(sheet, [existingRow]);
 }
 
@@ -304,7 +293,6 @@ function fastFullUpdate(barcode, tank) {
   if (tank["Status"] === "Empty") rowObj["Date Emptied"] = now;
 
   sheet.appendRow(rowToArray(rowObj));
-  formatSheet(sheet);
   moveRowsToOverflow(sheet, [existingRow]);
 }
 
@@ -366,7 +354,7 @@ function eventTime(row) {
 }
 
 function normalizeBarcode(value) {
-  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return String(value || "").trim().replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 }
 
 function validateStatus(status) {
