@@ -1,170 +1,184 @@
-const SHEET_NAME = "Tanks";
-const HEADERS = ["Barcode", "Tank ID", "Gas", "Room", "Position", "Status", "Last Updated", "Updated By"];
+const STORAGE_KEYS = {
+  scriptUrl: "gasTankScriptUrl",
+  defaultUser: "gasTankDefaultUser"
+};
 
-function doGet(e) {
-  try {
-    const action = e.parameter.action;
-    const callback = e.parameter.callback;
-    const payload = e.parameter.payload ? JSON.parse(e.parameter.payload) : {};
+let tanks = [];
+let scanner = null;
 
-    let result;
+const el = (id) => document.getElementById(id);
 
-    if (!action) {
-      result = { ok: true, message: "Gas Tank Inventory API is running." };
-    } else if (action === "list") {
-      result = { ok: true, tanks: getTanks() };
-    } else if (action === "updateStatus") {
-      updateStatus(payload.barcode, payload.status, payload.updatedBy);
-      result = { ok: true };
-    } else if (action === "updateFull") {
-      updateFull(payload.barcode, payload.tank);
-      result = { ok: true };
-    } else if (action === "addTank") {
-      addTank(payload.tank);
-      result = { ok: true };
-    } else {
-      result = { ok: false, error: "Unknown action: " + action };
-    }
+document.addEventListener("DOMContentLoaded", () => {
+  bindEvents();
+  loadSettings();
+  refreshData();
+});
 
-    return outputResult(result, callback);
+/* ---------------- EVENTS ---------------- */
 
-  } catch (err) {
-    return outputResult(
-      { ok: false, error: err.message },
-      e.parameter.callback
-    );
-  }
+function bindEvents() {
+  el("refreshBtn").onclick = refreshData;
+  el("saveScriptUrlBtn").onclick = () => saveScriptUrl(el("scriptUrlInput").value);
+  el("manualLookupBtn").onclick = () => handleBarcode(el("manualBarcodeInput").value.trim());
 }
 
-function outputResult(result, callback) {
-  if (callback) {
-    return ContentService
-      .createTextOutput(callback + "(" + JSON.stringify(result) + ");")
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
+/* ---------------- SETTINGS ---------------- */
 
-  return ContentService
-    .createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
+function loadSettings() {
+  el("scriptUrlInput").value = localStorage.getItem(STORAGE_KEYS.scriptUrl) || "";
 }
 
-function getSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME);
-
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-  }
-
-  sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
-  sheet.setFrozenRows(1);
-
-  return sheet;
+function getScriptUrl() {
+  return localStorage.getItem(STORAGE_KEYS.scriptUrl) || "";
 }
 
-function getTanks() {
-  const sheet = getSheet();
-  const lastRow = sheet.getLastRow();
+function saveScriptUrl(url) {
+  localStorage.setItem(STORAGE_KEYS.scriptUrl, url.trim());
+  refreshData();
+}
 
-  if (lastRow < 2) return [];
+/* ---------------- JSONP FIX ---------------- */
 
-  const values = sheet.getRange(2, 1, lastRow - 1, HEADERS.length).getValues();
+function api(action, payload = {}) {
+  return new Promise((resolve, reject) => {
+    const url = getScriptUrl();
+    if (!url) return reject(new Error("Missing Apps Script URL"));
 
-  return values
-    .filter(row => row.some(cell => String(cell).trim() !== ""))
-    .map(row => {
-      const obj = {};
-      HEADERS.forEach((header, i) => {
-        obj[header] = row[i] instanceof Date
-          ? row[i].toISOString()
-          : String(row[i] || "");
-      });
-      return obj;
+    const callbackName = "cb_" + Date.now();
+
+    window[callbackName] = function(data) {
+      delete window[callbackName];
+      script.remove();
+
+      if (!data.ok) {
+        reject(new Error(data.error || "API error"));
+      } else {
+        resolve(data);
+      }
+    };
+
+    const params = new URLSearchParams({
+      action,
+      callback: callbackName,
+      payload: JSON.stringify(payload)
     });
-}
 
-function updateStatus(barcode, status, updatedBy) {
-  barcode = normalizeBarcode(barcode);
-  validateStatus(status);
+    const script = document.createElement("script");
+    script.src = url + "?" + params.toString();
+    script.onerror = () => reject(new Error("Connection failed"));
 
-  const sheet = getSheet();
-  const row = findRowByBarcode(sheet, barcode);
-
-  if (row < 0) throw new Error("Barcode not found: " + barcode);
-
-  sheet.getRange(row, HEADERS.indexOf("Status") + 1).setValue(status);
-  sheet.getRange(row, HEADERS.indexOf("Last Updated") + 1).setValue(new Date());
-  sheet.getRange(row, HEADERS.indexOf("Updated By") + 1).setValue(updatedBy || "");
-}
-
-function updateFull(barcode, tank) {
-  if (!tank) throw new Error("Missing tank update.");
-
-  barcode = normalizeBarcode(barcode);
-  validateStatus(tank["Status"]);
-
-  const sheet = getSheet();
-  const row = findRowByBarcode(sheet, barcode);
-
-  if (row < 0) throw new Error("Barcode not found: " + barcode);
-
-  ["Room", "Position", "Status", "Updated By"].forEach(header => {
-    sheet.getRange(row, HEADERS.indexOf(header) + 1).setValue(tank[header] || "");
+    document.body.appendChild(script);
   });
-
-  sheet.getRange(row, HEADERS.indexOf("Last Updated") + 1).setValue(new Date());
 }
 
-function addTank(tank) {
-  if (!tank) throw new Error("Missing tank object.");
+/* ---------------- DATA ---------------- */
 
-  const barcode = normalizeBarcode(tank["Barcode"]);
+async function refreshData() {
+  if (!getScriptUrl()) return;
 
-  if (!barcode) throw new Error("Barcode is required.");
-  if (!tank["Gas"]) throw new Error("Gas is required.");
-  if (!tank["Room"]) throw new Error("Room is required.");
-  if (!tank["Position"]) throw new Error("Position is required.");
-
-  validateStatus(tank["Status"] || "New");
-
-  const sheet = getSheet();
-
-  if (findRowByBarcode(sheet, barcode) > 0) {
-    throw new Error("That barcode already exists.");
+  try {
+    const data = await api("list");
+    tanks = data.tanks || [];
+    renderResults();
+  } catch (e) {
+    alert("Connection error");
   }
-
-  const row = HEADERS.map(header => {
-    if (header === "Barcode") return barcode;
-    if (header === "Last Updated") return new Date();
-    return tank[header] || "";
-  });
-
-  sheet.appendRow(row);
 }
 
-function findRowByBarcode(sheet, barcode) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return -1;
+/* ---------------- SEARCH ---------------- */
 
-  const barcodes = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+function renderResults() {
+  const box = el("tankResults");
+  if (!box) return;
 
-  for (let i = 0; i < barcodes.length; i++) {
-    if (normalizeBarcode(barcodes[i][0]) === barcode) {
-      return i + 2;
+  box.innerHTML = tanks.map(t => `
+    <div style="padding:10px;border-bottom:1px solid #ccc">
+      <b>${t["Tank ID"]}</b> (${t["Gas"]})<br>
+      ${t["Room"]} – ${t["Position"]}<br>
+      <b>${t["Status"]}</b>
+    </div>
+  `).join("");
+}
+
+/* ---------------- SCAN LOGIC ---------------- */
+
+function handleBarcode(barcode) {
+  if (!barcode) return alert("No barcode");
+
+  const tank = tanks.find(t => t["Barcode"] === barcode);
+
+  if (tank) {
+    el("scanResult").innerHTML = `
+      <h3>Update Tank</h3>
+      <input id="uRoom" value="${tank["Room"]}">
+      <input id="uPos" value="${tank["Position"]}">
+      <select id="uStatus">
+        <option ${tank["Status"]==="New"?"selected":""}>New</option>
+        <option ${tank["Status"]==="In Use"?"selected":""}>In Use</option>
+        <option ${tank["Status"]==="Empty"?"selected":""}>Empty</option>
+      </select>
+      <button onclick="saveUpdate('${barcode}')">Save</button>
+    `;
+  } else {
+    el("scanResult").innerHTML = `
+      <h3>New Tank</h3>
+      <input id="nGas" placeholder="Gas">
+      <input id="nRoom" placeholder="Room">
+      <input id="nPos" placeholder="Position">
+      <button onclick="saveNew('${barcode}')">Add</button>
+    `;
+  }
+}
+
+/* ---------------- SAVE ---------------- */
+
+async function saveUpdate(barcode) {
+  await api("updateFull", {
+    barcode,
+    tank: {
+      Room: el("uRoom").value,
+      Position: el("uPos").value,
+      Status: el("uStatus").value,
+      "Updated By": ""
     }
-  }
+  });
 
-  return -1;
+  refreshData();
 }
 
-function normalizeBarcode(value) {
-  return String(value || "").trim();
+async function saveNew(barcode) {
+  await api("addTank", {
+    tank: {
+      Barcode: barcode,
+      Gas: el("nGas").value,
+      Room: el("nRoom").value,
+      Position: el("nPos").value,
+      Status: "New",
+      "Updated By": ""
+    }
+  });
+
+  refreshData();
 }
 
-function validateStatus(status) {
-  const allowed = ["New", "In Use", "Empty"];
+/* ---------------- SCANNER ---------------- */
 
-  if (!allowed.includes(status)) {
-    throw new Error("Invalid status. Use New, In Use, or Empty.");
+function startScanner() {
+  scanner = new Html5Qrcode("reader");
+
+  scanner.start(
+    { facingMode: "environment" },
+    { fps: 10 },
+    decoded => {
+      handleBarcode(decoded);
+      stopScanner();
+    }
+  );
+}
+
+function stopScanner() {
+  if (scanner) {
+    scanner.stop();
+    scanner = null;
   }
 }
