@@ -12,6 +12,7 @@ var scanBuffer=[];
 var scanStartTime=0;
 var scanBufferTimer=null;
 var scanCollecting=false;
+var scanPaused=false;
 
 const el=id=>document.getElementById(id);
 const normBarcode=value=>String(value||"").trim().replace(/[^a-zA-Z0-9]/g,"").toUpperCase();
@@ -428,7 +429,12 @@ function renderKnownTankUpdate(t,rawScanned=""){
 
   bindDynamicSelects("update");
   on("saveScannedUpdateBtn","click",()=>saveExistingTank(t["Barcode"]));
-  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";});
+
+  on("clearScanFormBtn","click",()=>{
+    el("scanResult").innerHTML="";
+    scanPaused = false;
+    showToast("Ready to scan next tank.");
+  });
 }
 
 function renderNewTankSetup(rawScanned){
@@ -467,7 +473,12 @@ function renderNewTankSetup(rawScanned){
 
   bindDynamicSelects("new");
   on("saveNewTankBtn","click",saveNewTankFromScan);
-  on("clearScanFormBtn","click",()=>{el("scanResult").innerHTML="";});
+
+  on("clearScanFormBtn","click",()=>{
+    el("scanResult").innerHTML="";
+    scanPaused = false;
+    showToast("Ready to scan next tank.");
+  });
 }
 
 function bindDynamicSelects(prefix){
@@ -534,6 +545,7 @@ async function saveExistingTank(barcode){
     el("scanResult").dataset.saved="true";
     el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");
     scrollToEl("cameraCard");
+    scanPaused = false;
   }catch(err){
     showToast(err.message);
     await refreshData();
@@ -604,6 +616,7 @@ async function saveNewTank(tank,fromScan){
       showView("scanView");
     }
     scrollToEl("cameraCard");
+    scanPaused = false;
   }catch(err){
     showToast(err.message);
     await refreshData();
@@ -712,6 +725,7 @@ function finalizeScanBuffer(){
     chosen = reads.sort((a,b)=>b.length-a.length)[0]; // fallback longest
   }
 
+  scanPaused = true;
   showToast("Barcode confirmed");
   handleBarcode(chosen);
 }
@@ -795,13 +809,12 @@ function startScanner(){
   },false);
 
   scanner.render(decodedText=>{
+    if(scanPaused) return;
     if(scanCooldown && decodedText===lastScanned) return;
-
+  
     lastScanned=decodedText;
     queueScanResult(decodedText);
-
-    // Short cooldown so the same camera frame does not spam the buffer,
-    // while still allowing about 5 reads over 0.5 seconds.
+  
     scanCooldown=true;
     setTimeout(()=>{scanCooldown=false;},100);
   });
