@@ -668,28 +668,6 @@ function queueScanResult(decodedText){
   }
 }
 
-
-  // Start a 0.5 second collection window. During this time, collect up to 5 reads.
-  if(!scanCollecting){
-    scanCollecting=true;
-    scanBuffer=[];
-    showToast("Reading barcode... hold steady.");
-
-    scanBufferTimer=setTimeout(()=>{
-      finalizeScanBuffer();
-    },500);
-  }
-
-  // Only add every ~0.1 s worth of reads, and cap at 5 reads total.
-  if(scanBuffer.length<5){
-    scanBuffer.push(raw);
-  }
-
-  if(scanBuffer.length>=5){
-    finalizeScanBuffer();
-  }
-}
-
 function finalizeScanBuffer(){
   if(!scanCollecting) return;
   scanCollecting=false;
