@@ -30,7 +30,6 @@ function doGet(e) {
       const action = e.parameter.action;
       const callback = e.parameter.callback;
       const payload = e.parameter.payload ? JSON.parse(e.parameter.payload) : {};
-
       let result;
 
       if (!action) {
@@ -38,7 +37,7 @@ function doGet(e) {
       } else if (action === "list") {
         result = { ok: true, tanks: getCurrentTanks() };
       } else if (action === "lookup") {
-        result = { ok: true, tank: lookupTank(payload.barcode) };
+        result = { ok: true, tank: lookupTank(payload.barcode || payload.normalizedBarcode) };
       } else if (action === "updateStatus") {
         fastStatusUpdate(payload.barcode, payload.status, payload.updatedBy);
         result = { ok: true };
@@ -93,7 +92,7 @@ function ensureHeaders(sheet) {
   if (!hasAnyHeader) {
     sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
     sheet.setFrozenRows(1);
-  sheet.getRange("A:B").setNumberFormat("@");
+    sheet.getRange("A:B").setNumberFormat("@");
     return;
   }
 
@@ -104,6 +103,7 @@ function ensureHeaders(sheet) {
     migrateSheetToHeaders(sheet, existingHeaders);
   } else {
     sheet.setFrozenRows(1);
+    sheet.getRange("A:B").setNumberFormat("@");
   }
 }
 
@@ -123,65 +123,59 @@ function migrateSheetToHeaders(sheet, existingHeaders) {
   sheet.clearContents();
   sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
   sheet.setFrozenRows(1);
+  sheet.getRange("A:B").setNumberFormat("@");
 
   if (newRows.length > 0) {
     sheet.getRange(2, 1, newRows.length, HEADERS.length).setValues(newRows);
   }
 }
 
+function getCurrentTanks() {
+  const sheet = getOrCreateSheet(CURRENT_SHEET_NAME);
+  const rows = readSheetRows(sheet).filter(row => normalizeBarcode(row["Barcode"]));
+
+  const latestByCode = {};
+  const duplicateRows = [];
+
+  rows.forEach((row, idx) => {
+    row.__rowNumber = idx + 2;
+    const barcode = normalizeBarcode(row["Barcode"]);
+    if (!row["Event ID"]) row["Event ID"] = Utilities.getUuid();
+    if (!row["Tank ID"]) row["Tank ID"] = String(row["Barcode"] || "");
+
+    if (!latestByCode[barcode] || eventTime(row) >= eventTime(latestByCode[barcode])) {
+      if (latestByCode[barcode]) duplicateRows.push(latestByCode[barcode].__rowNumber);
+      latestByCode[barcode] = row;
+    } else {
+      duplicateRows.push(row.__rowNumber);
+    }
+  });
+
+  if (duplicateRows.length > 0) moveRowsToOverflow(sheet, duplicateRows);
+
+  return Object.values(latestByCode).map(rowToClientObject);
+}
 
 function lookupTank(barcode) {
   const target = normalizeBarcode(barcode);
   if (!target) throw new Error("Barcode is required.");
 
-  const currentRows = readSheetRows(getOrCreateSheet(CURRENT_SHEET_NAME));
-  const overflowRows = readSheetRows(getOrCreateSheet(OVERFLOW_SHEET_NAME));
+  const rows = readSheetRows(getOrCreateSheet(CURRENT_SHEET_NAME))
+    .concat(readSheetRows(getOrCreateSheet(OVERFLOW_SHEET_NAME)));
 
-  const matching = currentRows
-    .concat(overflowRows)
-    .filter(row => {
-      return normalizeBarcode(row["Barcode"]) === target ||
-             normalizeBarcode(row["Tank ID"]) === target;
-    });
+  const matches = rows.filter(row => {
+    return normalizeBarcode(row["Barcode"]) === target ||
+           normalizeBarcode(row["Tank ID"]) === target;
+  });
 
-  if (matching.length === 0) return null;
+  if (matches.length === 0) return null;
 
-  let latest = matching[0];
-  matching.forEach(row => {
+  let latest = matches[0];
+  matches.forEach(row => {
     if (eventTime(row) >= eventTime(latest)) latest = row;
   });
 
   return rowToClientObject(latest);
-}
-
-function getCurrentTanks() {
-  const currentSheet = getOrCreateSheet(CURRENT_SHEET_NAME);
-  const rows = readSheetRows(currentSheet).filter(row => normalizeBarcode(row["Barcode"]));
-
-  // Safety pass only for the current sheet. If duplicates somehow exist, keep latest in Tanks and move older to Overflow.
-  const byBarcode = {};
-  const duplicates = [];
-
-  rows.forEach((row, idx) => {
-    const barcode = normalizeBarcode(row["Barcode"]);
-    row.__rowNumber = idx + 2;
-
-    if (!row["Event ID"]) row["Event ID"] = Utilities.getUuid();
-    if (!row["Tank ID"]) row["Tank ID"] = barcode;
-
-    if (!byBarcode[barcode] || eventTime(row) >= eventTime(byBarcode[barcode])) {
-      if (byBarcode[barcode]) duplicates.push(byBarcode[barcode]);
-      byBarcode[barcode] = row;
-    } else {
-      duplicates.push(row);
-    }
-  });
-
-  if (duplicates.length > 0) {
-    moveRowsToOverflow(currentSheet, duplicates.map(r => r.__rowNumber));
-  }
-
-  return Object.values(byBarcode).map(rowToClientObject);
 }
 
 function readSheetRows(sheet) {
@@ -203,8 +197,10 @@ function readSheetRows(sheet) {
 function fastAddTank(tank) {
   if (!tank) throw new Error("Missing tank object.");
 
-  const barcode = normalizeBarcode(tank["Barcode"]);
-  if (!barcode) throw new Error("Barcode is required.");
+  const barcode = String(tank["Barcode"] || "").trim();
+  const normalized = normalizeBarcode(barcode);
+
+  if (!normalized) throw new Error("Barcode is required.");
   if (!tank["Gas"]) throw new Error("Gas is required.");
   if (!tank["Room"]) throw new Error("Room is required.");
   if (!tank["Position"]) throw new Error("Position is required.");
@@ -213,7 +209,7 @@ function fastAddTank(tank) {
   validateStatus(status);
 
   const sheet = getOrCreateSheet(CURRENT_SHEET_NAME);
-  const existingRow = findRowByBarcode(sheet, barcode);
+  const existingRow = findRowByBarcode(sheet, normalized);
   const now = new Date();
 
   const rowObj = {
@@ -232,25 +228,24 @@ function fastAddTank(tank) {
     "Event Type": existingRow > 0 ? "add-replaced-existing" : "add"
   };
 
-  // Fast path: append new current row, then move the old row to Overflow.
   sheet.appendRow(rowToArray(rowObj));
   if (existingRow > 0) moveRowsToOverflow(sheet, [existingRow]);
 }
 
 function fastStatusUpdate(barcode, status, updatedBy) {
-  barcode = normalizeBarcode(barcode);
+  const normalized = normalizeBarcode(barcode);
   validateStatus(status);
 
   const sheet = getOrCreateSheet(CURRENT_SHEET_NAME);
-  const existingRow = findRowByBarcode(sheet, barcode);
+  const existingRow = findRowByBarcode(sheet, normalized);
   if (existingRow < 0) throw new Error("Barcode not found: " + barcode);
 
   const current = getRowObject(sheet, existingRow);
   const now = new Date();
 
   const rowObj = cloneRow(current);
-  rowObj["Barcode"] = barcode;
-  rowObj["Tank ID"] = barcode;
+  rowObj["Barcode"] = String(current["Barcode"] || barcode);
+  rowObj["Tank ID"] = String(current["Barcode"] || barcode);
   rowObj["Status"] = status;
   rowObj["Last Modified"] = now;
   rowObj["Updated By"] = updatedBy || "";
@@ -267,19 +262,19 @@ function fastStatusUpdate(barcode, status, updatedBy) {
 function fastFullUpdate(barcode, tank) {
   if (!tank) throw new Error("Missing tank update.");
 
-  barcode = normalizeBarcode(barcode);
+  const normalized = normalizeBarcode(barcode);
   validateStatus(tank["Status"]);
 
   const sheet = getOrCreateSheet(CURRENT_SHEET_NAME);
-  const existingRow = findRowByBarcode(sheet, barcode);
+  const existingRow = findRowByBarcode(sheet, normalized);
   if (existingRow < 0) throw new Error("Barcode not found: " + barcode);
 
   const current = getRowObject(sheet, existingRow);
   const now = new Date();
 
   const rowObj = cloneRow(current);
-  rowObj["Barcode"] = barcode;
-  rowObj["Tank ID"] = barcode;
+  rowObj["Barcode"] = String(current["Barcode"] || barcode);
+  rowObj["Tank ID"] = String(current["Barcode"] || barcode);
   rowObj["Gas"] = tank["Gas"] || current["Gas"] || "";
   rowObj["Room"] = tank["Room"] || "";
   rowObj["Position"] = tank["Position"] || "";
@@ -307,14 +302,16 @@ function moveRowsToOverflow(currentSheet, rowNumbers) {
   });
 }
 
-function findRowByBarcode(sheet, barcode) {
+function findRowByBarcode(sheet, normalizedBarcode) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return -1;
 
-  const barcodes = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const values = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
 
-  for (let i = 0; i < barcodes.length; i++) {
-    if (normalizeBarcode(barcodes[i][0]) === barcode) return i + 2;
+  for (let i = 0; i < values.length; i++) {
+    const barcode = normalizeBarcode(values[i][0]);
+    const tankId = normalizeBarcode(values[i][1]);
+    if (barcode === normalizedBarcode || tankId === normalizedBarcode) return i + 2;
   }
 
   return -1;
@@ -349,6 +346,7 @@ function rowToClientObject(row) {
 function eventTime(row) {
   const value = row["Last Modified"] || row["Date Added"];
   if (value instanceof Date) return value.getTime();
+
   const parsed = new Date(value).getTime();
   return Number.isNaN(parsed) ? 0 : parsed;
 }

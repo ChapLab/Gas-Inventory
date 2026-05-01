@@ -34,11 +34,12 @@
     <section id="scanView" class="view active">
       <div id="cameraCard" class="card">
         <h2>Scan tank barcode</h2>
-        <p>Known tank: update room, position, and status. New barcode: set up a new tank.</p>
+        <p>Known tank: update gas, room, position, and status. New barcode: set up a new tank.</p>
+
         <button id="startScanBtn">Start scanner</button>
         <button id="stopScanBtn" class="secondary hidden">Stop scanner</button>
         <div id="reader" class="reader hidden"></div>
-        <p class="hint">Tip: leave the scanner open while checking tanks. Most phone browsers do not expose tap-to-focus to web apps, but moving the phone slightly usually triggers autofocus.</p>
+        <p class="hint">Leave the scanner open while checking tanks. Most phone browsers do not support true tap-to-focus from a website.</p>
 
         <label for="manualBarcodeInput">Manual barcode</label>
         <div class="inline">
@@ -128,8 +129,8 @@
       </div>
 
       <div class="card">
-        <h2>Sheet behavior</h2>
-        <p>The app uses append-only updates. New rows are appended first, then the app shows the latest event for each barcode. Older events are preserved in <b>Overflow</b>.</p>
+        <h2>Sheet tabs</h2>
+        <p><b>Tanks</b> keeps the latest row for each barcode. <b>Overflow</b> stores older rows.</p>
         <pre>Barcode | Tank ID | Gas | Room | Position | Status | Date Added | Date Set In Use | Date Emptied | Last Modified | Updated By | Event ID | Event Type</pre>
       </div>
     </section>
@@ -137,6 +138,6 @@
     <div id="toast" class="toast hidden"></div>
   </main>
 
-  <script src="app.js?v=11"></script>
+  <script src="app.js?v=13"></script>
 </body>
 </html>
