@@ -689,12 +689,11 @@ function queueScanResult(decodedText){
   }
 }
 
-  const raw=String(decodedText||"").trim();
-
+  const raw = String(decodedText || "").trim();
   if (!raw) {
     console.warn("Empty barcode read, ignoring.");
     return;
-}
+  }
 
   // Start a 0.5 second collection window. During this time, collect up to 5 reads.
   if(!scanCollecting){
