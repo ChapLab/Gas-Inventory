@@ -1,13 +1,13 @@
 # ChapLab Gas Tank Inventory v5
 
-Changes:
-- Gas, Room, and Position are now real dropdowns like Status.
-- Each dropdown has an "Add new..." option.
-- Selecting "Add new..." reveals a textbox underneath.
-- Position options are filtered by the selected Room.
+Updates:
+- Gas, Room, and Position are now true dropdown menus.
+- Each dropdown has `Add new...`.
+- Selecting `Add new...` reveals a textbox underneath.
+- Position dropdown only shows positions already associated with the selected room.
+- The sheet/app uses `Position` consistently.
 - Tank ID is always the barcode.
-- Sheet uses Position, not Location.
-- Tracks Date Added, Date Set In Use, Date Emptied, Last Modified.
+- Scanner stays open after scanning to reduce repeated camera permission prompts.
 
 Upload to GitHub Pages:
 - index.html
@@ -17,5 +17,5 @@ Upload to GitHub Pages:
 Paste into Apps Script:
 - apps_script.gs
 
-Then redeploy:
+Then redeploy Apps Script:
 Deploy → Manage deployments → Edit → New version → Deploy

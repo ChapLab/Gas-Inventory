@@ -154,7 +154,7 @@ function updateFull(barcode, tank) {
   const now = new Date();
 
   setCell(sheet, row, "Tank ID", barcode);
-  setCell(sheet, row, "Gas", tank["Gas"] || "");
+  setCell(sheet, row, "Gas", tank["Gas"] || getCell(sheet, row, "Gas"));
   setCell(sheet, row, "Room", tank["Room"] || "");
   setCell(sheet, row, "Position", tank["Position"] || "");
   setCell(sheet, row, "Status", tank["Status"] || "");
@@ -228,6 +228,12 @@ function setCell(sheet, row, header, value) {
   const col = HEADERS.indexOf(header) + 1;
   if (col < 1) throw new Error("Unknown header: " + header);
   sheet.getRange(row, col).setValue(value);
+}
+
+function getCell(sheet, row, header) {
+  const col = HEADERS.indexOf(header) + 1;
+  if (col < 1) throw new Error("Unknown header: " + header);
+  return sheet.getRange(row, col).getValue();
 }
 
 function normalizeBarcode(value) {

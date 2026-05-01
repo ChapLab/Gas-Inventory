@@ -1,5 +1,5 @@
 const STORAGE_KEYS={scriptUrl:"gasTankScriptUrl",defaultUser:"gasTankDefaultUser"};
-const ADD_NEW="__ADD_NEW__";
+const ADD_NEW_VALUE="__ADD_NEW__";
 let tanks=[],scanner=null,lastScanned="",scanCooldown=false;
 const el=id=>document.getElementById(id);
 
@@ -17,9 +17,10 @@ function bindEvents(){
   on("gasFilter","change",renderResults);
   on("statusFilter","change",renderResults);
   on("roomFilter","change",renderResults);
-  on("addGasSelect","change",()=>toggleNewInput("addGasSelect","addGasNew"));
-  on("addRoomSelect","change",()=>{toggleNewInput("addRoomSelect","addRoomNew");populatePositionSelect("addPositionSelect",getChoiceValue("addRoomSelect","addRoomNew"),"");});
-  on("addPositionSelect","change",()=>toggleNewInput("addPositionSelect","addPositionNew"));
+  on("addGasSelect","change",()=>toggleAddNewInput("addGasSelect","addGasNew"));
+  on("addRoomSelect","change",()=>{toggleAddNewInput("addRoomSelect","addRoomNew");populatePositionSelectFor("addRoomSelect","addRoomNew","addPositionSelect","addPositionNew");});
+  on("addRoomNew","input",()=>populatePositionSelectFor("addRoomSelect","addRoomNew","addPositionSelect","addPositionNew"));
+  on("addPositionSelect","change",()=>toggleAddNewInput("addPositionSelect","addPositionNew"));
   document.querySelectorAll(".quick-filters button").forEach(btn=>btn.addEventListener("click",()=>{if(el("statusFilter"))el("statusFilter").value=btn.dataset.status;renderResults();}));
   on("startScanBtn","click",startScanner);
   on("stopScanBtn","click",stopScanner);
@@ -89,16 +90,23 @@ async function refreshData(){
     const data=await api("list");
     tanks=data.tanks||[];
     updateConnectionStatus(`Loaded ${tanks.length} tanks`);
-    populateFilters();renderResults();
+    populateAllOptions();renderResults();
   }catch(err){updateConnectionStatus("Connection error");showToast(err.message);}
 }
 
-function populateFilters(){
-  if(el("gasFilter"))fillSelect(el("gasFilter"),"All gases",uniqueValues("Gas"));
-  if(el("roomFilter"))fillSelect(el("roomFilter"),"All rooms",uniqueValues("Room"));
-  populateChoiceSelect("addGasSelect",uniqueValues("Gas"),"Select gas","Add new gas...","");
-  populateChoiceSelect("addRoomSelect",uniqueValues("Room"),"Select room","Add new room...","");
-  populatePositionSelect("addPositionSelect",getChoiceValue("addRoomSelect","addRoomNew"),"");
+function populateAllOptions(){
+  if(el("gasFilter"))fillSelect(el("gasFilter"),"All gases",uniqueValues("Gas"),false);
+  if(el("roomFilter"))fillSelect(el("roomFilter"),"All rooms",uniqueValues("Room"),false);
+  populateAddDropdowns();
+}
+
+function populateAddDropdowns(){
+  fillSelect(el("addGasSelect"),"Select gas",uniqueValues("Gas"),true);
+  fillSelect(el("addRoomSelect"),"Select room",uniqueValues("Room"),true);
+  populatePositionSelectFor("addRoomSelect","addRoomNew","addPositionSelect","addPositionNew");
+  toggleAddNewInput("addGasSelect","addGasNew");
+  toggleAddNewInput("addRoomSelect","addRoomNew");
+  toggleAddNewInput("addPositionSelect","addPositionNew");
 }
 
 function uniqueValues(key){return[...new Set(tanks.map(t=>(t[key]||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));}
@@ -107,57 +115,39 @@ function positionsForRoom(room){
   const positions=tanks.filter(t=>!normalized||(t["Room"]||"").trim().toLowerCase()===normalized).map(t=>(t["Position"]||"").trim()).filter(Boolean);
   return[...new Set(positions)].sort((a,b)=>a.localeCompare(b));
 }
-
-function populateChoiceSelect(selectId,values,placeholder,addNewLabel,selectedValue=""){
-  const select=el(selectId);
+function selectedOrNew(selectId,newInputId){
+  const select=el(selectId),input=el(newInputId);
+  if(!select)return"";
+  return select.value===ADD_NEW_VALUE?(input?input.value.trim():""):select.value.trim();
+}
+function fillSelect(select,placeholder,values,includeAddNew){
   if(!select)return;
-  const current=selectedValue||select.value;
-  select.innerHTML="";
-  const blank=document.createElement("option");
-  blank.value="";
-  blank.textContent=placeholder;
-  select.appendChild(blank);
-  values.forEach(v=>{
-    const opt=document.createElement("option");
-    opt.value=v;opt.textContent=v;
-    select.appendChild(opt);
-  });
-  const add=document.createElement("option");
-  add.value=ADD_NEW;add.textContent=addNewLabel;
-  select.appendChild(add);
-  if(values.includes(current))select.value=current;
-  else if(current===ADD_NEW)select.value=ADD_NEW;
-  else select.value="";
-  const newInputId=selectId.replace("Select","New");
-  if(el(newInputId))toggleNewInput(selectId,newInputId);
-}
-function populatePositionSelect(selectId,room,selectedValue=""){
-  populateChoiceSelect(selectId,positionsForRoom(room),"Select position","Add new position...",selectedValue);
-}
-function fillSelect(select,firstLabel,values){
   const current=select.value;
-  select.innerHTML=`<option value="">${firstLabel}</option>`;
+  select.innerHTML="";
+  const first=document.createElement("option");
+  first.value="";
+  first.textContent=placeholder;
+  select.appendChild(first);
   values.forEach(v=>{const option=document.createElement("option");option.value=v;option.textContent=v;select.appendChild(option);});
-  if(values.includes(current))select.value=current;
-}
-function toggleNewInput(selectId,inputId){
-  if(!el(selectId)||!el(inputId))return;
-  const show=el(selectId).value===ADD_NEW;
-  el(inputId).classList.toggle("hidden",!show);
-  if(show)setTimeout(()=>el(inputId).focus(),50);
-}
-function getChoiceValue(selectId,inputId){
-  if(!el(selectId))return"";
-  if(el(selectId).value===ADD_NEW)return el(inputId)?el(inputId).value.trim():"";
-  return el(selectId).value.trim();
-}
-function setChoice(selectId,inputId,value,values,placeholder,addNewLabel){
-  populateChoiceSelect(selectId,values,placeholder,addNewLabel,value);
-  if(!values.includes(value)&&value){
-    el(selectId).value=ADD_NEW;
-    if(el(inputId))el(inputId).value=value;
+  if(includeAddNew){
+    const add=document.createElement("option");
+    add.value=ADD_NEW_VALUE;
+    add.textContent="Add new...";
+    select.appendChild(add);
   }
-  toggleNewInput(selectId,inputId);
+  if([...select.options].some(o=>o.value===current))select.value=current;
+}
+function toggleAddNewInput(selectId,inputId){
+  const select=el(selectId),input=el(inputId);
+  if(!select||!input)return;
+  const isAdd=select.value===ADD_NEW_VALUE;
+  input.classList.toggle("hidden",!isAdd);
+  if(isAdd)setTimeout(()=>input.focus(),0);
+}
+function populatePositionSelectFor(roomSelectId,roomNewId,positionSelectId,positionNewId){
+  const room=selectedOrNew(roomSelectId,roomNewId);
+  fillSelect(el(positionSelectId),"Select position",positionsForRoom(room),true);
+  toggleAddNewInput(positionSelectId,positionNewId);
 }
 
 function renderResults(){
@@ -211,7 +201,7 @@ function locallyApplyUpdate(barcode,updates){
   tanks[index]={...tanks[index],...updates,"Tank ID":barcode,"Last Modified":now};
   if(updates["Status"]==="In Use")tanks[index]["Date Set In Use"]=now;
   if(updates["Status"]==="Empty")tanks[index]["Date Emptied"]=now;
-  renderResults();populateFilters();
+  renderResults();populateAllOptions();
 }
 
 async function updateTankStatus(barcode,status){
@@ -258,52 +248,32 @@ function handleBarcode(rawBarcode){
   if(found)renderKnownTankUpdate(found);else renderNewTankSetup(barcode);
 }
 
-function selectBlock(prefix, gasValue="", roomValue="", positionValue=""){
-  const gasValues=uniqueValues("Gas");
-  const roomValues=uniqueValues("Room");
-  const positionValues=positionsForRoom(roomValue);
-
+function buildValueSelect(fieldName,selectId,newInputId,values,currentValue,placeholder){
+  const hasCurrent=currentValue&&values.includes(currentValue);
+  const options=[
+    `<option value="">${placeholder}</option>`,
+    ...values.map(v=>`<option value="${escapeAttr(v)}" ${v===currentValue?"selected":""}>${escapeHtml(v)}</option>`),
+    `<option value="${ADD_NEW_VALUE}" ${currentValue&&!hasCurrent?"selected":""}>Add new...</option>`
+  ].join("");
+  const inputValue=currentValue&&!hasCurrent?currentValue:"";
   return `
-    <label>Gas</label>
-    <select id="${prefix}GasSelect"></select>
-    <input id="${prefix}GasNew" class="hidden add-new-input" placeholder="Type new gas" />
-
-    <label>Room</label>
-    <select id="${prefix}RoomSelect"></select>
-    <input id="${prefix}RoomNew" class="hidden add-new-input" placeholder="Type new room" />
-
-    <label>Position</label>
-    <select id="${prefix}PositionSelect"></select>
-    <input id="${prefix}PositionNew" class="hidden add-new-input" placeholder="Type new position" />
+    <label>${fieldName}</label>
+    <select id="${selectId}">${options}</select>
+    <input id="${newInputId}" class="${currentValue&&!hasCurrent?"":"hidden"} add-new-input" value="${escapeAttr(inputValue)}" placeholder="Type new ${fieldName.toLowerCase()}" />
   `;
-}
-
-function initSelectBlock(prefix, gasValue="", roomValue="", positionValue="", includeGas=true){
-  if(el(`${prefix}GasSelect`)){
-    setChoice(`${prefix}GasSelect`,`${prefix}GasNew`,gasValue,uniqueValues("Gas"),"Select gas","Add new gas...");
-    on(`${prefix}GasSelect`,"change",()=>toggleNewInput(`${prefix}GasSelect`,`${prefix}GasNew`));
-  }
-  setChoice(`${prefix}RoomSelect`,`${prefix}RoomNew`,roomValue,uniqueValues("Room"),"Select room","Add new room...");
-  on(`${prefix}RoomSelect`,"change",()=>{
-    toggleNewInput(`${prefix}RoomSelect`,`${prefix}RoomNew`);
-    populatePositionSelect(`${prefix}PositionSelect`,getChoiceValue(`${prefix}RoomSelect`,`${prefix}RoomNew`),"");
-    toggleNewInput(`${prefix}PositionSelect`,`${prefix}PositionNew`);
-  });
-  on(`${prefix}RoomNew`,"input",()=>{
-    populatePositionSelect(`${prefix}PositionSelect`,getChoiceValue(`${prefix}RoomSelect`,`${prefix}RoomNew`),"");
-  });
-  setChoice(`${prefix}PositionSelect`,`${prefix}PositionNew`,positionValue,positionsForRoom(roomValue),"Select position","Add new position...");
-  on(`${prefix}PositionSelect`,"change",()=>toggleNewInput(`${prefix}PositionSelect`,`${prefix}PositionNew`));
 }
 
 function renderKnownTankUpdate(t){
   if(!el("scanResult"))return;
+  const gases=uniqueValues("Gas"),rooms=uniqueValues("Room"),positions=positionsForRoom(t["Room"]);
   el("scanResult").innerHTML=`
     <div class="card">
       <h2>Tank found: update it</h2>
       <p><b>${escapeHtml(t["Tank ID"]||t["Barcode"]||"No tank ID")}</b> · ${escapeHtml(t["Gas"]||"Unknown gas")}</p>
       <p>Current: ${escapeHtml(t["Room"]||"No room")} · ${escapeHtml(t["Position"]||"No position")} · <b>${escapeHtml(t["Status"]||"No status")}</b></p>
-      ${selectBlock("update",t["Gas"],t["Room"],t["Position"])}
+      ${buildValueSelect("Gas","updateGasSelect","updateGasNew",gases,t["Gas"]||"","Select gas")}
+      ${buildValueSelect("Room","updateRoomSelect","updateRoomNew",rooms,t["Room"]||"","Select room")}
+      ${buildValueSelect("Position","updatePositionSelect","updatePositionNew",positions,t["Position"]||"","Select position")}
       <label>Status</label>
       <select id="updateStatus">
         <option ${t["Status"]==="New"?"selected":""}>New</option>
@@ -322,11 +292,17 @@ function renderKnownTankUpdate(t){
         <button id="scanAgainBtn" class="secondary">Clear form</button>
       </div>
     </div>`;
-  initSelectBlock("update",t["Gas"],t["Room"],t["Position"]);
+  on("updateGasSelect","change",()=>toggleAddNewInput("updateGasSelect","updateGasNew"));
+  on("updateRoomSelect","change",()=>{toggleAddNewInput("updateRoomSelect","updateRoomNew");populatePositionSelectFor("updateRoomSelect","updateRoomNew","updatePositionSelect","updatePositionNew");});
+  on("updateRoomNew","input",()=>populatePositionSelectFor("updateRoomSelect","updateRoomNew","updatePositionSelect","updatePositionNew"));
+  on("updatePositionSelect","change",()=>toggleAddNewInput("updatePositionSelect","updatePositionNew"));
+  toggleAddNewInput("updateGasSelect","updateGasNew");
+  toggleAddNewInput("updateRoomSelect","updateRoomNew");
+  toggleAddNewInput("updatePositionSelect","updatePositionNew");
   on("saveScannedUpdateBtn","click",async()=>{
     const updatedBy=el("updateUpdatedBy").value.trim();
     if(updatedBy){localStorage.setItem(STORAGE_KEYS.defaultUser,updatedBy);if(el("defaultUserInput"))el("defaultUserInput").value=updatedBy;if(el("addUpdatedBy"))el("addUpdatedBy").value=updatedBy;}
-    const updates={"Gas":getChoiceValue("updateGasSelect","updateGasNew"),"Room":getChoiceValue("updateRoomSelect","updateRoomNew"),"Position":getChoiceValue("updatePositionSelect","updatePositionNew"),"Status":el("updateStatus").value,"Updated By":updatedBy};
+    const updates={"Gas":selectedOrNew("updateGasSelect","updateGasNew"),"Room":selectedOrNew("updateRoomSelect","updateRoomNew"),"Position":selectedOrNew("updatePositionSelect","updatePositionNew"),"Status":el("updateStatus").value,"Updated By":updatedBy};
     if(!updates["Gas"]||!updates["Room"]||!updates["Position"]){showToast("Gas, room, and position are required.");return;}
     locallyApplyUpdate(t["Barcode"],updates);showToast("Saving update...");
     try{await api("updateFull",{barcode:t["Barcode"],tank:updates});showToast("Tank updated.");await refreshData();el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");}
@@ -343,7 +319,9 @@ function renderNewTankSetup(barcode){
       <p>This barcode is not in the shared inventory yet. The Tank ID will be the barcode.</p>
       <label>Barcode / Tank ID</label>
       <input id="newBarcode" value="${escapeAttr(barcode)}" readonly />
-      ${selectBlock("new")}
+      ${buildValueSelect("Gas","newGasSelect","newGasNew",uniqueValues("Gas"),"","Select gas")}
+      ${buildValueSelect("Room","newRoomSelect","newRoomNew",uniqueValues("Room"),"","Select room")}
+      ${buildValueSelect("Position","newPositionSelect","newPositionNew",[],"","Select position")}
       <label>Status</label>
       <select id="newStatus"><option selected>New</option><option>In Use</option><option>Empty</option></select>
       <label>Updated by</label>
@@ -353,14 +331,20 @@ function renderNewTankSetup(barcode){
         <button id="scanAgainBtn" class="secondary">Clear form</button>
       </div>
     </div>`;
-  initSelectBlock("new");
+  on("newGasSelect","change",()=>toggleAddNewInput("newGasSelect","newGasNew"));
+  on("newRoomSelect","change",()=>{toggleAddNewInput("newRoomSelect","newRoomNew");populatePositionSelectFor("newRoomSelect","newRoomNew","newPositionSelect","newPositionNew");});
+  on("newRoomNew","input",()=>populatePositionSelectFor("newRoomSelect","newRoomNew","newPositionSelect","newPositionNew"));
+  on("newPositionSelect","change",()=>toggleAddNewInput("newPositionSelect","newPositionNew"));
+  toggleAddNewInput("newGasSelect","newGasNew");
+  toggleAddNewInput("newRoomSelect","newRoomNew");
+  toggleAddNewInput("newPositionSelect","newPositionNew");
   on("saveNewTankBtn","click",async()=>{
-    const tank={"Barcode":el("newBarcode").value.trim(),"Tank ID":el("newBarcode").value.trim(),"Gas":getChoiceValue("newGasSelect","newGasNew"),"Room":getChoiceValue("newRoomSelect","newRoomNew"),"Position":getChoiceValue("newPositionSelect","newPositionNew"),"Status":el("newStatus").value,"Updated By":el("newUpdatedBy").value.trim()};
+    const tank={"Barcode":el("newBarcode").value.trim(),"Tank ID":el("newBarcode").value.trim(),"Gas":selectedOrNew("newGasSelect","newGasNew"),"Room":selectedOrNew("newRoomSelect","newRoomNew"),"Position":selectedOrNew("newPositionSelect","newPositionNew"),"Status":el("newStatus").value,"Updated By":el("newUpdatedBy").value.trim()};
     if(!tank["Barcode"]||!tank["Gas"]||!tank["Room"]||!tank["Position"]){showToast("Barcode, gas, room, and position are required.");return;}
     if(tank["Updated By"]){localStorage.setItem(STORAGE_KEYS.defaultUser,tank["Updated By"]);if(el("defaultUserInput"))el("defaultUserInput").value=tank["Updated By"];if(el("addUpdatedBy"))el("addUpdatedBy").value=tank["Updated By"];}
     const now=new Date().toISOString();
     tanks.push({...tank,"Date Added":now,"Date Set In Use":tank["Status"]==="In Use"?now:"","Date Emptied":tank["Status"]==="Empty"?now:"","Last Modified":now});
-    renderResults();populateFilters();showToast("Saving new tank...");
+    renderResults();populateAllOptions();showToast("Saving new tank...");
     try{await api("addTank",{tank});showToast("New tank added.");await refreshData();el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");}
     catch(err){showToast(err.message);await refreshData();}
   });
@@ -369,23 +353,27 @@ function renderNewTankSetup(barcode){
 
 async function addTankFromForm(){
   const barcode=el("addBarcode").value.trim();
-  const tank={"Barcode":barcode,"Tank ID":barcode,"Gas":getChoiceValue("addGasSelect","addGasNew"),"Room":getChoiceValue("addRoomSelect","addRoomNew"),"Position":getChoiceValue("addPositionSelect","addPositionNew"),"Status":el("addStatus").value,"Updated By":el("addUpdatedBy").value.trim()||getDefaultUser()};
+  const tank={"Barcode":barcode,"Tank ID":barcode,"Gas":selectedOrNew("addGasSelect","addGasNew"),"Room":selectedOrNew("addRoomSelect","addRoomNew"),"Position":selectedOrNew("addPositionSelect","addPositionNew"),"Status":el("addStatus").value,"Updated By":el("addUpdatedBy").value.trim()||getDefaultUser()};
   if(!tank["Barcode"]||!tank["Gas"]||!tank["Room"]||!tank["Position"]){showToast("Barcode, gas, room, and position are required.");return;}
   if(tank["Updated By"]){localStorage.setItem(STORAGE_KEYS.defaultUser,tank["Updated By"]);if(el("defaultUserInput"))el("defaultUserInput").value=tank["Updated By"];}
   const now=new Date().toISOString();
   tanks.push({...tank,"Date Added":now,"Date Set In Use":tank["Status"]==="In Use"?now:"","Date Emptied":tank["Status"]==="Empty"?now:"","Last Modified":now});
-  renderResults();populateFilters();showToast("Saving tank...");
+  renderResults();populateAllOptions();showToast("Saving tank...");
   try{await api("addTank",{tank});showToast("Tank added.");clearAddForm();await refreshData();showView("searchView");}
   catch(err){showToast(err.message);await refreshData();}
 }
 
 function clearAddForm(){
   if(el("addBarcode"))el("addBarcode").value="";
-  ["addGasSelect","addRoomSelect","addPositionSelect"].forEach(id=>{if(el(id))el(id).value="";});
-  ["addGasNew","addRoomNew","addPositionNew"].forEach(id=>{if(el(id)){el(id).value="";el(id).classList.add("hidden");}});
+  if(el("addGasNew"))el("addGasNew").value="";
+  if(el("addRoomNew"))el("addRoomNew").value="";
+  if(el("addPositionNew"))el("addPositionNew").value="";
+  if(el("addGasSelect"))el("addGasSelect").value="";
+  if(el("addRoomSelect"))el("addRoomSelect").value="";
+  if(el("addPositionSelect"))el("addPositionSelect").value="";
   if(el("addStatus"))el("addStatus").value="New";
   if(el("addUpdatedBy"))el("addUpdatedBy").value=getDefaultUser();
-  populateFilters();
+  populateAddDropdowns();
 }
 
 function downloadCsv(){
@@ -408,11 +396,6 @@ function showToast(message){
   clearTimeout(window.toastTimeout);
   window.toastTimeout=setTimeout(()=>el("toast").classList.add("hidden"),3200);
 }
-function formatDate(value){
-  if(!value)return"";
-  const date=new Date(value);
-  if(Number.isNaN(date.getTime()))return value;
-  return date.toLocaleString();
-}
+function formatDate(value){if(!value)return"";const date=new Date(value);if(Number.isNaN(date.getTime()))return value;return date.toLocaleString();}
 function escapeHtml(str){return String(str??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
 function escapeAttr(str){return escapeHtml(str).replaceAll("`","&#096;");}
