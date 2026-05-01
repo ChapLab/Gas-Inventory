@@ -10,7 +10,7 @@
 <body>
   <header class="app-header">
     <div>
-      <h1>Gas Tanks</h1>
+      <h1>ChapLab Tanks</h1>
       <p id="connectionStatus">Not connected yet</p>
     </div>
     <button id="refreshBtn" class="small-btn">Refresh</button>
@@ -25,13 +25,13 @@
     </section>
 
     <nav class="tabs">
-      <button class="tab active" data-view="searchView">Search</button>
-      <button class="tab" data-view="scanView">Scan</button>
+      <button class="tab active" data-view="scanView">Scan</button>
+      <button class="tab" data-view="searchView">Search</button>
       <button class="tab" data-view="addView">Add</button>
       <button class="tab" data-view="settingsView">Settings</button>
     </nav>
 
-    <section id="searchView" class="view active">
+    <section id="searchView" class="view">
       <div class="card">
         <label for="searchInput">Search tanks</label>
         <input id="searchInput" placeholder="Argon, room 401, empty, barcode..." />
@@ -63,7 +63,7 @@
       <div id="tankResults" class="tank-list"></div>
     </section>
 
-    <section id="scanView" class="view">
+    <section id="scanView" class="view active">
       <div class="card">
         <h2>Scan barcode</h2>
         <p>Point the camera at the barcode. If scanning fails, enter it manually.</p>

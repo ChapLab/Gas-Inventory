@@ -296,29 +296,148 @@ function handleBarcode(rawBarcode) {
   const found = tanks.find(t => String(t["Barcode"]).trim() === barcode);
 
   if (found) {
-    el("scanResult").innerHTML = `
-      <div class="summary">Tank found</div>
-      ${tankCardHtml(found)}
-    `;
-    document.querySelectorAll("[data-update-barcode]").forEach(btn => {
-      btn.addEventListener("click", () => updateTankStatus(btn.dataset.updateBarcode, btn.dataset.status));
-    });
+    renderKnownTankUpdate(found);
   } else {
-    el("scanResult").innerHTML = `
-      <div class="card warning">
-        <h2>New barcode detected</h2>
-        <p>This barcode is not in the inventory yet. Add it as a new tank?</p>
-        <p><b>${escapeHtml(barcode)}</b></p>
-        <button id="useScannedBarcodeBtn">Add this tank</button>
-      </div>
-    `;
-    el("useScannedBarcodeBtn").addEventListener("click", () => {
-      el("addBarcode").value = barcode;
-      el("addStatus").value = "New";
-      showView("addView");
-      showToast("Barcode copied to Add screen.");
-    });
+    renderNewTankSetup(barcode);
   }
+}
+
+function renderKnownTankUpdate(t) {
+  el("scanResult").innerHTML = `
+    <div class="card">
+      <h2>Tank found: update it</h2>
+      <p><b>${escapeHtml(t["Tank ID"] || "No tank ID")}</b> · ${escapeHtml(t["Gas"] || "Unknown gas")}</p>
+      <p>Current: ${escapeHtml(t["Room"] || "No room")} · ${escapeHtml(t["Position"] || "No position")} · <b>${escapeHtml(t["Status"] || "No status")}</b></p>
+
+      <label>Room</label>
+      <input id="updateRoom" value="${escapeAttr(t["Room"] || "")}" list="roomOptions" placeholder="Example: Chem 401" />
+
+      <label>Specific position</label>
+      <input id="updatePosition" value="${escapeAttr(t["Position"] || "")}" list="positionOptions" placeholder="Example: Back wall rack" />
+
+      <label>Status</label>
+      <select id="updateStatus">
+        <option ${t["Status"] === "New" ? "selected" : ""}>New</option>
+        <option ${t["Status"] === "In Use" ? "selected" : ""}>In Use</option>
+        <option ${t["Status"] === "Empty" ? "selected" : ""}>Empty</option>
+      </select>
+
+      <label>Updated by</label>
+      <input id="updateUpdatedBy" value="${escapeAttr(localStorage.getItem(STORAGE_KEYS.defaultUser) || t["Updated By"] || "")}" placeholder="Your initials" />
+
+      <div class="status-actions">
+        <button id="saveScannedUpdateBtn">Save update</button>
+        <button id="scanAgainBtn" class="secondary">Scan another</button>
+      </div>
+    </div>
+  `;
+
+  el("saveScannedUpdateBtn").addEventListener("click", async () => {
+    const updatedBy = el("updateUpdatedBy").value.trim();
+    if (updatedBy) {
+      localStorage.setItem(STORAGE_KEYS.defaultUser, updatedBy);
+      el("defaultUserInput").value = updatedBy;
+      el("addUpdatedBy").value = updatedBy;
+    }
+
+    try {
+      await api("updateFull", {
+        barcode: t["Barcode"],
+        tank: {
+          "Room": el("updateRoom").value.trim(),
+          "Position": el("updatePosition").value.trim(),
+          "Status": el("updateStatus").value,
+          "Updated By": updatedBy
+        }
+      });
+      showToast("Tank updated.");
+      await refreshData();
+      el("scanResult").innerHTML = emptyState("Saved. Scan another tank when ready.");
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+
+  el("scanAgainBtn").addEventListener("click", () => {
+    el("scanResult").innerHTML = "";
+    startScanner();
+  });
+}
+
+function renderNewTankSetup(barcode) {
+  el("scanResult").innerHTML = `
+    <div class="card warning">
+      <h2>New tank detected</h2>
+      <p>This barcode is not in the shared inventory yet. Set it up now.</p>
+
+      <label>Barcode</label>
+      <input id="newBarcode" value="${escapeAttr(barcode)}" readonly />
+
+      <label>Tank ID / label</label>
+      <input id="newTankId" placeholder="Example: Ar-001" />
+
+      <label>Gas</label>
+      <input id="newGas" list="gasOptions" placeholder="Example: Argon" />
+
+      <label>Room</label>
+      <input id="newRoom" list="roomOptions" placeholder="Example: Chem 401" />
+
+      <label>Specific position</label>
+      <input id="newPosition" list="positionOptions" placeholder="Example: Back wall rack" />
+
+      <label>Status</label>
+      <select id="newStatus">
+        <option selected>New</option>
+        <option>In Use</option>
+        <option>Empty</option>
+      </select>
+
+      <label>Updated by</label>
+      <input id="newUpdatedBy" value="${escapeAttr(localStorage.getItem(STORAGE_KEYS.defaultUser) || "")}" placeholder="Your initials" />
+
+      <div class="status-actions">
+        <button id="saveNewTankBtn">Add new tank</button>
+        <button id="scanAgainBtn" class="secondary">Cancel / scan another</button>
+      </div>
+    </div>
+  `;
+
+  el("saveNewTankBtn").addEventListener("click", async () => {
+    const tank = {
+      "Barcode": el("newBarcode").value.trim(),
+      "Tank ID": el("newTankId").value.trim(),
+      "Gas": el("newGas").value.trim(),
+      "Room": el("newRoom").value.trim(),
+      "Position": el("newPosition").value.trim(),
+      "Status": el("newStatus").value,
+      "Updated By": el("newUpdatedBy").value.trim()
+    };
+
+    if (!tank["Barcode"] || !tank["Gas"] || !tank["Room"] || !tank["Position"]) {
+      showToast("Barcode, gas, room, and position are required.");
+      return;
+    }
+
+    if (tank["Updated By"]) {
+      localStorage.setItem(STORAGE_KEYS.defaultUser, tank["Updated By"]);
+      el("defaultUserInput").value = tank["Updated By"];
+      el("addUpdatedBy").value = tank["Updated By"];
+    }
+
+    try {
+      await api("addTank", { tank });
+      showToast("New tank added.");
+      await refreshData();
+      el("scanResult").innerHTML = emptyState("Saved. Scan another tank when ready.");
+    } catch (err) {
+      showToast(err.message);
+    }
+  });
+
+  el("scanAgainBtn").addEventListener("click", () => {
+    el("scanResult").innerHTML = "";
+    startScanner();
+  });
 }
 
 async function addTankFromForm() {
