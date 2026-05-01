@@ -273,8 +273,19 @@ pre {
   overflow-x: auto;
 }
 
+.scan-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 @media (min-width: 650px) {
   .filters {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .scan-actions {
+    grid-template-columns: 1fr 1fr;
   }
 }
