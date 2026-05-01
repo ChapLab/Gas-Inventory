@@ -1,18 +1,20 @@
-# ChapLab Gas Tank Inventory App v3
+# ChapLab Gas Tank Inventory v4
 
-Changes:
-- Tank ID is automatically the barcode number.
-- Room and Location are text boxes with dropdown suggestions.
-- Location suggestions are filtered by the selected room.
-- Dates are tracked separately: Date Added, Date Set In Use, Date Emptied, Last Modified.
-- New tanks appear locally right away while saving to the sheet.
+Fixes:
+- Standardizes the sheet and app to `Position` instead of mixing Location/Position.
+- Tank ID is always the barcode number.
+- Gas, Room, and Position fields are textboxes with dropdown suggestions from the Google Sheet.
+- Position suggestions are filtered by the selected Room.
+- Scanner stays open after a scan, so the browser should not ask for camera permission for every tank. Tap Stop Scanner when done.
+- Tracks Date Added, Date Set In Use, Date Emptied, Last Modified.
 
-Upload index.html, style.css, and app.js to GitHub Pages.
-Paste apps_script.gs into Apps Script, then redeploy as a new version.
+Upload to GitHub Pages:
+- index.html
+- style.css
+- app.js
 
-Sheet tab: Tanks
+Paste into Apps Script:
+- apps_script.gs
 
-Headers:
-Barcode | Tank ID | Gas | Room | Location | Status | Date Added | Date Set In Use | Date Emptied | Last Modified | Updated By
-
-Legacy Position migrates to Location. Legacy Last Updated migrates to Last Modified.
+Then redeploy:
+Deploy → Manage deployments → Edit → New version → Deploy
