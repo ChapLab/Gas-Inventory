@@ -666,7 +666,7 @@ function queueScanResult(decodedText){
     scanBuffer.push(raw);
   }
 
-  if(scanBuffer.length>=5){
+  if(scanBuffer.length>=5 || hasTwoMatchingReads(scanBuffer)){
     finalizeScanBuffer();
   }
 }
@@ -692,6 +692,17 @@ function finalizeScanBuffer(){
   const chosen=chooseBestBarcode(reads);
   showToast(`Barcode confirmed: ${chosen}`);
   handleBarcode(chosen);
+}
+
+function hasTwoMatchingReads(reads){
+  const counts={};
+  for(const raw of reads){
+    const n=normBarcode(raw);
+    if(!n)continue;
+    counts[n]=(counts[n]||0)+1;
+    if(counts[n]>=2)return true;
+  }
+  return false;
 }
 
 function chooseBestBarcode(reads){
@@ -739,7 +750,7 @@ function startScanner(){
 
   scanner=new Html5QrcodeScanner("reader",{
     fps:10,
-    qrbox:{width:280,height:160},
+    qrbox:{width:360,height:220},
     rememberLastUsedCamera:true,
     supportedScanTypes:[Html5QrcodeScanType.SCAN_TYPE_CAMERA],
     formatsToSupport:[
