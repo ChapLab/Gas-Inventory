@@ -1,143 +1,44 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>ChapLab Gas Tank Inventory</title>
-  <link rel="stylesheet" href="style.css" />
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChapLab Tanks</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
-  <header class="app-header">
-    <div>
-      <h1>ChapLab Tanks</h1>
-      <p id="connectionStatus">Not connected yet</p>
-    </div>
-    <button id="refreshBtn" class="small-btn">Refresh</button>
-  </header>
 
-  <main>
-    <section id="setupCard" class="card warning">
-      <h2>Setup needed</h2>
-      <p>Paste your Google Apps Script Web App URL below.</p>
-      <input id="scriptUrlInput" placeholder="https://script.google.com/macros/s/..." />
-      <button id="saveScriptUrlBtn">Save connection</button>
-    </section>
+<h1>ChapLab Tanks</h1>
 
-    <nav class="tabs">
-      <button class="tab active" data-view="scanView">Scan</button>
-      <button class="tab" data-view="searchView">Search</button>
-      <button class="tab" data-view="addView">Add</button>
-      <button class="tab" data-view="settingsView">Settings</button>
-    </nav>
+<div class="field">
+<label>Gas</label>
+<div class="input-with-button">
+<input id="addGas" list="gasOptions">
+<button onclick="triggerDropdown('addGas')">▼</button>
+</div>
+</div>
 
-    <section id="scanView" class="view active">
-      <div class="card">
-        <h2>Scan tank barcode</h2>
-        <p>Known tank: update room, position, and status. New barcode: set up a new tank.</p>
-        <button id="startScanBtn">Start scanner</button>
-        <button id="stopScanBtn" class="secondary hidden">Stop scanner</button>
-        <div id="reader" class="reader hidden"></div>
-        <p class="hint">Tip: leave the scanner open while checking tanks so the browser does not keep asking for camera permission.</p>
+<div class="field">
+<label>Room</label>
+<div class="input-with-button">
+<input id="addRoom" list="roomOptions">
+<button onclick="triggerDropdown('addRoom')">▼</button>
+</div>
+</div>
 
-        <label for="manualBarcodeInput">Manual barcode</label>
-        <div class="inline">
-          <input id="manualBarcodeInput" placeholder="Type barcode number" />
-          <button id="manualLookupBtn">Look up</button>
-        </div>
-      </div>
+<div class="field">
+<label>Position</label>
+<div class="input-with-button">
+<input id="addPosition" list="positionOptions">
+<button onclick="triggerDropdown('addPosition')">▼</button>
+</div>
+</div>
 
-      <div id="scanResult"></div>
-    </section>
+<datalist id="gasOptions"></datalist>
+<datalist id="roomOptions"></datalist>
+<datalist id="positionOptions"></datalist>
 
-    <section id="searchView" class="view">
-      <div class="card">
-        <label for="searchInput">Search tanks</label>
-        <input id="searchInput" placeholder="Argon, room 401, empty, barcode..." />
-
-        <div class="filters">
-          <select id="gasFilter"><option value="">All gases</option></select>
-          <select id="statusFilter">
-            <option value="">All statuses</option>
-            <option value="New">New</option>
-            <option value="In Use">In Use</option>
-            <option value="Empty">Empty</option>
-          </select>
-          <select id="roomFilter"><option value="">All rooms</option></select>
-        </div>
-
-        <div class="quick-filters">
-          <button data-status="">All</button>
-          <button data-status="New">New</button>
-          <button data-status="In Use">In Use</button>
-          <button data-status="Empty">Empty</button>
-        </div>
-      </div>
-
-      <div id="resultsSummary" class="summary"></div>
-      <div id="tankResults" class="tank-list"></div>
-    </section>
-
-    <section id="addView" class="view">
-      <div class="card">
-        <h2>Add new tank</h2>
-        <p>The Tank ID will automatically be the barcode number.</p>
-
-        <label>Barcode / Tank ID</label>
-        <input id="addBarcode" placeholder="Barcode" />
-
-        <label>Gas</label>
-        <input id="addGas" list="gasOptions" placeholder="Example: Argon" />
-
-        <label>Room</label>
-        <input id="addRoom" list="roomOptions" placeholder="Example: Chem 401" />
-
-        <label>Position</label>
-        <input id="addPosition" list="addPositionOptions" placeholder="Example: Back wall rack" />
-
-        <label>Status</label>
-        <select id="addStatus">
-          <option>New</option>
-          <option>In Use</option>
-          <option>Empty</option>
-        </select>
-
-        <label>Updated by</label>
-        <input id="addUpdatedBy" placeholder="Your initials" />
-
-        <button id="addTankBtn">Add tank</button>
-      </div>
-    </section>
-
-    <datalist id="gasOptions"></datalist>
-    <datalist id="roomOptions"></datalist>
-    <datalist id="positionOptions"></datalist>
-    <datalist id="addPositionOptions"></datalist>
-
-    <section id="settingsView" class="view">
-      <div class="card">
-        <h2>Settings</h2>
-
-        <label>Google Apps Script Web App URL</label>
-        <input id="settingsScriptUrlInput" placeholder="https://script.google.com/macros/s/..." />
-        <button id="settingsSaveUrlBtn">Save URL</button>
-
-        <label>Your initials</label>
-        <input id="defaultUserInput" placeholder="Example: BS" />
-        <button id="saveDefaultUserBtn">Save initials</button>
-
-        <button id="downloadCsvBtn" class="secondary">Download local CSV backup</button>
-      </div>
-
-      <div class="card">
-        <h2>Sheet columns</h2>
-        <pre>Barcode | Tank ID | Gas | Room | Position | Status | Date Added | Date Set In Use | Date Emptied | Last Modified | Updated By</pre>
-      </div>
-    </section>
-  </main>
-
-  <div id="toast" class="toast hidden"></div>
-
-  <script src="app.js?v=4"></script>
+<script src="app.js"></script>
 </body>
 </html>
