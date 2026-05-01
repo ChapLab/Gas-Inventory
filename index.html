@@ -129,14 +129,14 @@
 
       <div class="card">
         <h2>Sheet behavior</h2>
-        <p>The app now uses append-only updates. New rows are appended first, then the sheet is rebuilt so the newest row for each barcode stays in <b>Tanks</b> and older rows are moved to <b>Overflow</b>.</p>
+        <p>The app uses append-only updates. New rows are appended first, then the app shows the latest event for each barcode. Older events are preserved in <b>Overflow</b>.</p>
         <pre>Barcode | Tank ID | Gas | Room | Position | Status | Date Added | Date Set In Use | Date Emptied | Last Modified | Updated By | Event ID | Event Type</pre>
       </div>
     </section>
+
+    <div id="toast" class="toast hidden"></div>
   </main>
 
-  <div id="toast" class="toast hidden"></div>
-
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>

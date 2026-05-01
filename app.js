@@ -1,6 +1,6 @@
 const STORAGE_KEYS={scriptUrl:"gasTankScriptUrl",defaultUser:"gasTankDefaultUser"};
 const ADD_NEW_VALUE="__ADD_NEW__";
-let tanks=[],scanner=null,lastScanned="",scanCooldown=false;
+let tanks=[],scanner=null,lastScanned="",scanCooldown=false,isRefreshing=false;
 const el=id=>document.getElementById(id);
 
 document.addEventListener("DOMContentLoaded",()=>{bindEvents();loadSettings();refreshData();});
@@ -60,6 +60,13 @@ function updateConnectionStatus(message=""){
   if(el("connectionStatus"))el("connectionStatus").textContent=message||(hasUrl?"Connected to Google Sheet":"Paste Apps Script URL to connect");
 }
 
+function normalizeBarcode(value){
+  return String(value||"")
+    .trim()
+    .replace(/\s+/g,"")
+    .replace(/[\u200B-\u200D\uFEFF]/g,"");
+}
+
 function api(action,payload={}){
   return new Promise((resolve,reject)=>{
     const url=getScriptUrl();
@@ -83,15 +90,22 @@ function api(action,payload={}){
   });
 }
 
-async function refreshData(){
+async function refreshData({silent=false}={}){
   if(!getScriptUrl()){renderResults();return;}
-  updateConnectionStatus("Refreshing...");
+  if(isRefreshing)return;
+  isRefreshing=true;
+  if(!silent)updateConnectionStatus("Refreshing...");
   try{
     const data=await api("list");
-    tanks=data.tanks||[];
-    updateConnectionStatus(`Loaded ${tanks.length} current tanks`);
+    tanks=(data.tanks||[]).map(t=>({...t,"Barcode":normalizeBarcode(t["Barcode"]),"Tank ID":normalizeBarcode(t["Tank ID"]||t["Barcode"])}));
+    if(!silent)updateConnectionStatus(`Loaded ${tanks.length} current tanks`);
     populateAllOptions();renderResults();
-  }catch(err){updateConnectionStatus("Connection error");showToast(err.message);}
+  }catch(err){
+    if(!silent)updateConnectionStatus("Connection error");
+    showToast(err.message);
+  }finally{
+    isRefreshing=false;
+  }
 }
 
 function populateAllOptions(){
@@ -197,16 +211,18 @@ function tankCardHtml(t){
 function statusToClass(status){if(status==="In Use")return"InUse";if(status==="Empty")return"Empty";return"New";}
 
 function locallyApplyUpdate(barcode,updates,eventType="update"){
-  const index=tanks.findIndex(t=>String(t["Barcode"]).trim()===String(barcode).trim());
+  barcode=normalizeBarcode(barcode);
+  const index=tanks.findIndex(t=>normalizeBarcode(t["Barcode"])===barcode);
   const now=new Date().toISOString();
   if(index<0)return;
-  tanks[index]={...tanks[index],...updates,"Tank ID":barcode,"Last Modified":now,"Event Type":eventType,"Event ID":"local-"+Date.now()};
+  tanks[index]={...tanks[index],...updates,"Barcode":barcode,"Tank ID":barcode,"Last Modified":now,"Event Type":eventType,"Event ID":"local-"+Date.now()};
   if(updates["Status"]==="In Use")tanks[index]["Date Set In Use"]=now;
   if(updates["Status"]==="Empty")tanks[index]["Date Emptied"]=now;
   renderResults();populateAllOptions();
 }
 
 async function updateTankStatus(barcode,status){
+  barcode=normalizeBarcode(barcode);
   const updatedBy=getDefaultUser()||prompt("Your initials?")||"";
   locallyApplyUpdate(barcode,{"Status":status,"Updated By":updatedBy},"status");
   showToast(`Saving ${status}...`);
@@ -228,9 +244,10 @@ function startScanner(){
   if(el("stopScanBtn"))el("stopScanBtn").classList.remove("hidden");
   scanner=new Html5QrcodeScanner("reader",{fps:10,qrbox:{width:280,height:160},rememberLastUsedCamera:true,supportedScanTypes:[Html5QrcodeScanType.SCAN_TYPE_CAMERA],formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.CODE_39,Html5QrcodeSupportedFormats.CODE_93,Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.QR_CODE],videoConstraints:{facingMode:{ideal:"environment"},width:{ideal:1920},height:{ideal:1080},focusMode:"continuous"}},false);
   scanner.render(decodedText=>{
-    if(scanCooldown||decodedText===lastScanned)return;
-    scanCooldown=true;lastScanned=decodedText;
-    handleBarcode(decodedText);
+    const normalized=normalizeBarcode(decodedText);
+    if(scanCooldown||normalized===lastScanned)return;
+    scanCooldown=true;lastScanned=normalized;
+    handleBarcode(normalized);
     showToast("✅ Barcode scanned. Form opened below.");
     setTimeout(()=>{scanCooldown=false;lastScanned="";},2500);
   });
@@ -243,10 +260,14 @@ async function stopScanner(){
   if(el("stopScanBtn"))el("stopScanBtn").classList.add("hidden");
 }
 
-function handleBarcode(rawBarcode){
-  const barcode=String(rawBarcode||"").trim();
+async function handleBarcode(rawBarcode){
+  const barcode=normalizeBarcode(rawBarcode);
   if(!barcode){showToast("No barcode entered.");return;}
-  const found=tanks.find(t=>String(t["Barcode"]).trim()===barcode);
+
+  showToast("Checking barcode...");
+  await refreshData({silent:true});
+
+  const found=tanks.find(t=>normalizeBarcode(t["Barcode"])===barcode||normalizeBarcode(t["Tank ID"])===barcode);
   if(found)renderKnownTankUpdate(found);else renderNewTankSetup(barcode);
   setTimeout(()=>scrollToEl("scanResult"),100);
 }
@@ -268,11 +289,12 @@ function buildValueSelect(fieldName,selectId,newInputId,values,currentValue,plac
 
 function renderKnownTankUpdate(t){
   if(!el("scanResult"))return;
+  el("scanResult").dataset.saved="false";
   const gases=uniqueValues("Gas"),rooms=uniqueValues("Room"),positions=positionsForRoom(t["Room"]);
   el("scanResult").innerHTML=`
     <div class="card success">
-      <div class="scan-banner">✅ Barcode scanned</div>
-      <h2>Tank found: update it</h2>
+      <div class="scan-banner">✅ Existing tank found</div>
+      <h2>Update tank</h2>
       <p><b>${escapeHtml(t["Tank ID"]||t["Barcode"]||"No tank ID")}</b> · ${escapeHtml(t["Gas"]||"Unknown gas")}</p>
       <p>Current: ${escapeHtml(t["Room"]||"No room")} · ${escapeHtml(t["Position"]||"No position")} · <b>${escapeHtml(t["Status"]||"No status")}</b></p>
       ${buildValueSelect("Gas","updateGasSelect","updateGasNew",gases,t["Gas"]||"","Select gas")}
@@ -306,17 +328,20 @@ function renderKnownTankUpdate(t){
   on("saveScannedUpdateBtn","click",async()=>{
     const updatedBy=el("updateUpdatedBy").value.trim();
     if(updatedBy){localStorage.setItem(STORAGE_KEYS.defaultUser,updatedBy);if(el("defaultUserInput"))el("defaultUserInput").value=updatedBy;if(el("addUpdatedBy"))el("addUpdatedBy").value=updatedBy;}
+    const barcode=normalizeBarcode(t["Barcode"]);
     const updates={"Gas":selectedOrNew("updateGasSelect","updateGasNew"),"Room":selectedOrNew("updateRoomSelect","updateRoomNew"),"Position":selectedOrNew("updatePositionSelect","updatePositionNew"),"Status":el("updateStatus").value,"Updated By":updatedBy};
     if(!updates["Gas"]||!updates["Room"]||!updates["Position"]){showToast("Gas, room, and position are required.");return;}
-    locallyApplyUpdate(t["Barcode"],updates,"update");showToast("Saving update...");
-    try{await api("updateFull",{barcode:t["Barcode"],tank:updates});showToast("Tank updated.");await refreshData();el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");scrollToEl("cameraCard");}
+    locallyApplyUpdate(barcode,updates,"update");showToast("Saving update...");
+    try{await api("updateFull",{barcode,tank:updates});showToast("Tank updated.");await refreshData();el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");scrollToEl("cameraCard");}
     catch(err){showToast(err.message);await refreshData();}
   });
   on("scanAgainBtn","click",()=>{el("scanResult").innerHTML="";});
 }
 
 function renderNewTankSetup(barcode){
+  barcode=normalizeBarcode(barcode);
   if(!el("scanResult"))return;
+  el("scanResult").dataset.saved="false";
   el("scanResult").innerHTML=`
     <div class="card success">
       <div class="scan-banner">✅ New barcode scanned</div>
@@ -344,28 +369,56 @@ function renderNewTankSetup(barcode){
   toggleAddNewInput("newRoomSelect","newRoomNew",false);
   toggleAddNewInput("newPositionSelect","newPositionNew",false);
   on("saveNewTankBtn","click",async()=>{
-    const tank={"Barcode":el("newBarcode").value.trim(),"Tank ID":el("newBarcode").value.trim(),"Gas":selectedOrNew("newGasSelect","newGasNew"),"Room":selectedOrNew("newRoomSelect","newRoomNew"),"Position":selectedOrNew("newPositionSelect","newPositionNew"),"Status":el("newStatus").value,"Updated By":el("newUpdatedBy").value.trim()};
+    const barcode=normalizeBarcode(el("newBarcode").value);
+    const tank={"Barcode":barcode,"Tank ID":barcode,"Gas":selectedOrNew("newGasSelect","newGasNew"),"Room":selectedOrNew("newRoomSelect","newRoomNew"),"Position":selectedOrNew("newPositionSelect","newPositionNew"),"Status":el("newStatus").value,"Updated By":el("newUpdatedBy").value.trim()};
     if(!tank["Barcode"]||!tank["Gas"]||!tank["Room"]||!tank["Position"]){showToast("Barcode, gas, room, and position are required.");return;}
     if(tank["Updated By"]){localStorage.setItem(STORAGE_KEYS.defaultUser,tank["Updated By"]);if(el("defaultUserInput"))el("defaultUserInput").value=tank["Updated By"];if(el("addUpdatedBy"))el("addUpdatedBy").value=tank["Updated By"];}
     const now=new Date().toISOString();
     tanks.push({...tank,"Date Added":now,"Date Set In Use":tank["Status"]==="In Use"?now:"","Date Emptied":tank["Status"]==="Empty"?now:"","Last Modified":now,"Event Type":"add","Event ID":"local-"+Date.now()});
+    if(isSaving){showToast("Already saving. Wait a second.");return;}
+    isSaving=true;
     renderResults();populateAllOptions();showToast("Saving new tank...");
-    try{await api("addTank",{tank});showToast("New tank added.");await refreshData();el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");scrollToEl("cameraCard");}
-    catch(err){showToast(err.message);await refreshData();}
+    try{
+      await api("addTank",{tank});
+      showToast("New tank added.");
+      if(el("scanResult")){el("scanResult").dataset.saved="true";el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");}
+      scrollToEl("cameraCard");
+    }
+    catch(err){
+      showToast(err.message);
+      await refreshData({preserveForm:true});
+    }
+    finally{
+      isSaving=false;
+    }
   });
   on("scanAgainBtn","click",()=>{el("scanResult").innerHTML="";});
 }
 
 async function addTankFromForm(){
-  const barcode=el("addBarcode").value.trim();
+  const barcode=normalizeBarcode(el("addBarcode").value);
   const tank={"Barcode":barcode,"Tank ID":barcode,"Gas":selectedOrNew("addGasSelect","addGasNew"),"Room":selectedOrNew("addRoomSelect","addRoomNew"),"Position":selectedOrNew("addPositionSelect","addPositionNew"),"Status":el("addStatus").value,"Updated By":el("addUpdatedBy").value.trim()||getDefaultUser()};
   if(!tank["Barcode"]||!tank["Gas"]||!tank["Room"]||!tank["Position"]){showToast("Barcode, gas, room, and position are required.");return;}
   if(tank["Updated By"]){localStorage.setItem(STORAGE_KEYS.defaultUser,tank["Updated By"]);if(el("defaultUserInput"))el("defaultUserInput").value=tank["Updated By"];}
   const now=new Date().toISOString();
   tanks.push({...tank,"Date Added":now,"Date Set In Use":tank["Status"]==="In Use"?now:"","Date Emptied":tank["Status"]==="Empty"?now:"","Last Modified":now,"Event Type":"add","Event ID":"local-"+Date.now()});
+  if(isSaving){showToast("Already saving. Wait a second.");return;}
+  isSaving=true;
   renderResults();populateAllOptions();showToast("Saving tank...");
-  try{await api("addTank",{tank});showToast("Tank added.");clearAddForm();await refreshData();showView("scanView");scrollToEl("cameraCard");}
-  catch(err){showToast(err.message);await refreshData();}
+  try{
+    await api("addTank",{tank});
+    showToast("Tank added.");
+    clearAddForm();
+    showView("scanView");
+    scrollToEl("cameraCard");
+  }
+  catch(err){
+    showToast(err.message);
+    await refreshData({preserveForm:true});
+  }
+  finally{
+    isSaving=false;
+  }
 }
 
 function clearAddForm(){

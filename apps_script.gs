@@ -24,7 +24,7 @@ const LEGACY_HEADER_MAP = {
 function doGet(e) {
   try {
     const lock = LockService.getScriptLock();
-    lock.waitLock(30000);
+    lock.waitLock(10000);
 
     try {
       const action = e.parameter.action;
@@ -38,13 +38,13 @@ function doGet(e) {
       } else if (action === "list") {
         result = { ok: true, tanks: getCurrentTanks() };
       } else if (action === "updateStatus") {
-        appendStatusUpdate(payload.barcode, payload.status, payload.updatedBy);
+        fastStatusUpdate(payload.barcode, payload.status, payload.updatedBy);
         result = { ok: true };
       } else if (action === "updateFull") {
-        appendFullUpdate(payload.barcode, payload.tank);
+        fastFullUpdate(payload.barcode, payload.tank);
         result = { ok: true };
       } else if (action === "addTank") {
-        appendNewTank(payload.tank);
+        fastAddTank(payload.tank);
         result = { ok: true };
       } else {
         result = { ok: false, error: "Unknown action: " + action };
@@ -126,10 +126,34 @@ function migrateSheetToHeaders(sheet, existingHeaders) {
   }
 }
 
-function getAllEvents() {
-  const current = readSheetRows(getOrCreateSheet(CURRENT_SHEET_NAME));
-  const overflow = readSheetRows(getOrCreateSheet(OVERFLOW_SHEET_NAME));
-  return current.concat(overflow).filter(row => normalizeBarcode(row["Barcode"]));
+function getCurrentTanks() {
+  const currentSheet = getOrCreateSheet(CURRENT_SHEET_NAME);
+  const rows = readSheetRows(currentSheet).filter(row => normalizeBarcode(row["Barcode"]));
+
+  // Safety pass only for the current sheet. If duplicates somehow exist, keep latest in Tanks and move older to Overflow.
+  const byBarcode = {};
+  const duplicates = [];
+
+  rows.forEach((row, idx) => {
+    const barcode = normalizeBarcode(row["Barcode"]);
+    row.__rowNumber = idx + 2;
+
+    if (!row["Event ID"]) row["Event ID"] = Utilities.getUuid();
+    if (!row["Tank ID"]) row["Tank ID"] = barcode;
+
+    if (!byBarcode[barcode] || eventTime(row) >= eventTime(byBarcode[barcode])) {
+      if (byBarcode[barcode]) duplicates.push(byBarcode[barcode]);
+      byBarcode[barcode] = row;
+    } else {
+      duplicates.push(row);
+    }
+  });
+
+  if (duplicates.length > 0) {
+    moveRowsToOverflow(currentSheet, duplicates.map(r => r.__rowNumber));
+  }
+
+  return Object.values(byBarcode).map(rowToClientObject);
 }
 
 function readSheetRows(sheet) {
@@ -143,81 +167,12 @@ function readSheetRows(sheet) {
     .filter(row => row.some(cell => String(cell).trim() !== ""))
     .map(row => {
       const obj = {};
-      HEADERS.forEach((header, i) => {
-        obj[header] = row[i];
-      });
+      HEADERS.forEach((header, i) => obj[header] = row[i]);
       return obj;
     });
 }
 
-function getCurrentTanks() {
-  const events = getAllEvents();
-  const latest = latestByBarcode(events);
-  rebuildSheetsFromEvents(events);
-  return Object.values(latest).map(rowToClientObject);
-}
-
-function latestByBarcode(events) {
-  const latest = {};
-
-  events.forEach(row => {
-    const barcode = normalizeBarcode(row["Barcode"]);
-    if (!barcode) return;
-
-    if (!row["Event ID"]) row["Event ID"] = Utilities.getUuid();
-    if (!row["Tank ID"]) row["Tank ID"] = barcode;
-
-    const candidateTime = eventTime(row);
-    const existingTime = latest[barcode] ? eventTime(latest[barcode]) : -1;
-
-    if (!latest[barcode] || candidateTime >= existingTime) {
-      latest[barcode] = row;
-    }
-  });
-
-  return latest;
-}
-
-function rebuildSheetsFromEvents(events) {
-  const latest = latestByBarcode(events);
-  const currentRows = [];
-  const overflowRows = [];
-
-  events.forEach(row => {
-    const barcode = normalizeBarcode(row["Barcode"]);
-    if (!barcode) return;
-
-    const latestEventId = latest[barcode] && latest[barcode]["Event ID"];
-    const isLatest = String(row["Event ID"]) === String(latestEventId);
-
-    if (isLatest) currentRows.push(row);
-    else overflowRows.push(row);
-  });
-
-  writeRows(getOrCreateSheet(CURRENT_SHEET_NAME), currentRows);
-  writeRows(getOrCreateSheet(OVERFLOW_SHEET_NAME), overflowRows);
-}
-
-function writeRows(sheet, rows) {
-  sheet.clearContents();
-  sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
-  sheet.setFrozenRows(1);
-
-  if (rows.length > 0) {
-    const values = rows
-      .sort((a, b) => eventTime(b) - eventTime(a))
-      .map(row => HEADERS.map(header => row[header] || ""));
-    sheet.getRange(2, 1, values.length, HEADERS.length).setValues(values);
-  }
-}
-
-function appendEvent(rowObj) {
-  const events = getAllEvents();
-  events.push(rowObj);
-  rebuildSheetsFromEvents(events);
-}
-
-function appendNewTank(tank) {
+function fastAddTank(tank) {
   if (!tank) throw new Error("Missing tank object.");
 
   const barcode = normalizeBarcode(tank["Barcode"]);
@@ -229,6 +184,8 @@ function appendNewTank(tank) {
   const status = tank["Status"] || "New";
   validateStatus(status);
 
+  const sheet = getOrCreateSheet(CURRENT_SHEET_NAME);
+  const existingRow = findRowByBarcode(sheet, barcode);
   const now = new Date();
 
   const rowObj = {
@@ -244,19 +201,23 @@ function appendNewTank(tank) {
     "Last Modified": now,
     "Updated By": tank["Updated By"] || "",
     "Event ID": Utilities.getUuid(),
-    "Event Type": "add"
+    "Event Type": existingRow > 0 ? "add-replaced-existing" : "add"
   };
 
-  appendEvent(rowObj);
+  // Fast path: append new current row, then move the old row to Overflow.
+  sheet.appendRow(rowToArray(rowObj));
+  if (existingRow > 0) moveRowsToOverflow(sheet, [existingRow]);
 }
 
-function appendStatusUpdate(barcode, status, updatedBy) {
+function fastStatusUpdate(barcode, status, updatedBy) {
   barcode = normalizeBarcode(barcode);
   validateStatus(status);
 
-  const current = latestByBarcode(getAllEvents())[barcode];
-  if (!current) throw new Error("Barcode not found: " + barcode);
+  const sheet = getOrCreateSheet(CURRENT_SHEET_NAME);
+  const existingRow = findRowByBarcode(sheet, barcode);
+  if (existingRow < 0) throw new Error("Barcode not found: " + barcode);
 
+  const current = getRowObject(sheet, existingRow);
   const now = new Date();
 
   const rowObj = cloneRow(current);
@@ -271,18 +232,21 @@ function appendStatusUpdate(barcode, status, updatedBy) {
   if (status === "In Use") rowObj["Date Set In Use"] = now;
   if (status === "Empty") rowObj["Date Emptied"] = now;
 
-  appendEvent(rowObj);
+  sheet.appendRow(rowToArray(rowObj));
+  moveRowsToOverflow(sheet, [existingRow]);
 }
 
-function appendFullUpdate(barcode, tank) {
+function fastFullUpdate(barcode, tank) {
   if (!tank) throw new Error("Missing tank update.");
 
   barcode = normalizeBarcode(barcode);
   validateStatus(tank["Status"]);
 
-  const current = latestByBarcode(getAllEvents())[barcode];
-  if (!current) throw new Error("Barcode not found: " + barcode);
+  const sheet = getOrCreateSheet(CURRENT_SHEET_NAME);
+  const existingRow = findRowByBarcode(sheet, barcode);
+  if (existingRow < 0) throw new Error("Barcode not found: " + barcode);
 
+  const current = getRowObject(sheet, existingRow);
   const now = new Date();
 
   const rowObj = cloneRow(current);
@@ -300,7 +264,43 @@ function appendFullUpdate(barcode, tank) {
   if (tank["Status"] === "In Use") rowObj["Date Set In Use"] = now;
   if (tank["Status"] === "Empty") rowObj["Date Emptied"] = now;
 
-  appendEvent(rowObj);
+  sheet.appendRow(rowToArray(rowObj));
+  moveRowsToOverflow(sheet, [existingRow]);
+}
+
+function moveRowsToOverflow(currentSheet, rowNumbers) {
+  const overflow = getOrCreateSheet(OVERFLOW_SHEET_NAME);
+  const uniqueRows = [...new Set(rowNumbers)].filter(n => n > 1).sort((a, b) => b - a);
+
+  uniqueRows.forEach(rowNumber => {
+    const values = currentSheet.getRange(rowNumber, 1, 1, HEADERS.length).getValues()[0];
+    overflow.appendRow(values);
+    currentSheet.deleteRow(rowNumber);
+  });
+}
+
+function findRowByBarcode(sheet, barcode) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return -1;
+
+  const barcodes = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+
+  for (let i = 0; i < barcodes.length; i++) {
+    if (normalizeBarcode(barcodes[i][0]) === barcode) return i + 2;
+  }
+
+  return -1;
+}
+
+function getRowObject(sheet, rowNumber) {
+  const values = sheet.getRange(rowNumber, 1, 1, HEADERS.length).getValues()[0];
+  const obj = {};
+  HEADERS.forEach((header, i) => obj[header] = values[i]);
+  return obj;
+}
+
+function rowToArray(rowObj) {
+  return HEADERS.map(header => rowObj[header] || "");
 }
 
 function cloneRow(row) {
@@ -321,18 +321,15 @@ function rowToClientObject(row) {
 function eventTime(row) {
   const value = row["Last Modified"] || row["Date Added"];
   if (value instanceof Date) return value.getTime();
-
   const parsed = new Date(value).getTime();
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 function normalizeBarcode(value) {
-  return String(value || "").trim();
+  return String(value || "").trim().replace(/\s+/g, "");
 }
 
 function validateStatus(status) {
   const allowed = ["New", "In Use", "Empty"];
-  if (!allowed.includes(status)) {
-    throw new Error("Invalid status. Use New, In Use, or Empty.");
-  }
+  if (!allowed.includes(status)) throw new Error("Invalid status. Use New, In Use, or Empty.");
 }

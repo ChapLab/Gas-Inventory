@@ -1,27 +1,20 @@
-# ChapLab Gas Tank Inventory v6
+# ChapLab Gas Tank Inventory v7
 
-Fixes and changes:
-- Backend is append-only. Every add/update creates a new event row first.
-- The app shows only the latest event per barcode.
-- Older events are moved to the `Overflow` tab instead of being deleted.
-- Uses a script lock to prevent two simultaneous updates from corrupting the sheet.
-- Current status button is disabled/grayed out in Search cards.
-- Scanner gives a clearer success message and scrolls to the form after scanning.
-- After Add/Save, the app scrolls back to the camera card.
-- Room typing no longer steals focus on every character.
-- Scanner attempts continuous autofocus through browser constraints, but true tap-to-focus is not reliably exposed by mobile browsers.
+Fixes:
+- Toast/message box now has its own sticky bottom area inside the page layout, so it no longer covers buttons.
+- Barcode comparison is normalized in both app and Apps Script.
+- Before deciding whether a scan is new or existing, the app refreshes the tank list from the sheet.
+- This helps when another person added the tank earlier or when local data is stale.
+- Existing tank scans show "Existing tank found" instead of opening the new tank form.
+- Apps Script formats Barcode and Tank ID columns as plain text to reduce barcode mismatch issues.
 
-Upload to GitHub Pages:
-- index.html
-- style.css
-- app.js
+Important note:
+If your old sheet stored barcodes as numbers and stripped leading zeros, the app cannot recover those lost zeros automatically. You may need to manually correct those existing barcode cells once.
 
-Paste into Apps Script:
-- apps_script.gs
 
-Then redeploy Apps Script:
-Deploy → Manage deployments → Edit → New version → Deploy
-
-Sheet tabs:
-- Tanks = latest row per barcode only
-- Overflow = older event rows
+## v8 changes
+- Faster Apps Script updates: no full-sheet reconstruction on every write.
+- On add/update, the new row is appended to `Tanks`, then the previous row for that barcode is moved to `Overflow`.
+- Uses a lock so simultaneous requests queue safely.
+- App uses an `isSaving` guard so a new scan cannot wipe an in-progress add/update form.
+- The app does not force a full refresh after every successful save, so the form is not kicked out while saving.
