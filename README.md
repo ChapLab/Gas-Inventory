@@ -1,70 +1,173 @@
-# ChapLab Gas Tank Inventory v12
+# ChapLab Gas Tank Inventory
 
-This rebuild fixes the scan/manual lookup issue by using one shared `handleBarcode()` path for both camera and manual lookup.
+ChapLab Gas Tank Inventory is a mobile-friendly web app for tracking laboratory gas cylinders by barcode. It lets lab members scan or manually enter a tank barcode, look up the current tank record, add new tanks, update gas, room, position, status, and user initials, and keep the active inventory synchronized with a Google Sheet through Google Apps Script.
 
-## Key fixes
-- Manual lookup button calls the same logic as camera scan.
-- Scan rendering is wrapped in visible error handling, so if something breaks you see an error card instead of nothing.
-- Lookup checks both Barcode and Tank ID.
-- Barcode matching removes all non-letter/non-number characters and compares uppercase values.
-- Existing tank lookup asks Apps Script directly before opening the new-tank form.
-- The toast lives at the bottom of the layout instead of covering buttons.
-- Saves are protected with an `isSaving` guard so scans cannot wipe an active form mid-save.
-- Current status buttons are disabled in Search cards.
+The app is designed for phone-first use around gas cylinder storage areas, instrument rooms, and shared lab spaces where quick barcode scanning and simple status updates matter more than a heavy database interface.
 
-## Upload to GitHub Pages
-Upload:
-- `index.html`
-- `style.css`
-- `app.js`
+> Keywords: `gas tank inventory`, `gas cylinder inventory`, `lab inventory`, `laboratory inventory`, `barcode scanner`, `barcode lookup`, `mobile web app`, `Google Sheets`, `Google Apps Script`, `GitHub Pages`, `html5-qrcode`, `QR code scanner`, `cylinder tracking`, `tank tracking`, `gas tracking`, `room tracking`, `position tracking`, `inventory status`, `New`, `In Use`, `Empty`, `audit history`, `overflow sheet`, `JSONP API`, `Chapman Lab`, `ChapLab`, `scientific lab management`, `chemical inventory`, `Python-free web app`, `JavaScript`, `HTML`, `CSS`
 
-## Apps Script
-Paste:
-- `apps_script.gs`
+## What It Does
 
-Then redeploy:
-Deploy → Manage deployments → Edit → New version → Deploy
+The inventory app provides a lightweight front end for a Google Sheet-based gas tank database. Users can scan a tank barcode with a phone camera, search the loaded inventory, add a new tank, update tank metadata, or mark a tank as `New`, `In Use`, or `Empty`.
 
-Keep the same Web App URL.
+The active sheet stores the current record for each barcode. Older records are moved into an overflow sheet so the current inventory stays clean while historical updates remain available.
 
+## Features
 
-## v13 fix
-- Replaced `let isSaving` with a defensive global `appBusy` state.
-- Added `isBusy()` and `setBusy()` helpers so scan/add/update paths do not directly touch an uninitialized variable.
-- Exposed key handlers on `window` for safer callback/debug behavior.
+- Phone-friendly barcode scanning with `html5-qrcode`.
+- Manual barcode lookup for damaged labels, camera issues, or desktop use.
+- Shared lookup path for scanned and manually entered barcodes.
+- Barcode matching that ignores punctuation, spaces, and capitalization.
+- Fast phone-side lookup from the loaded inventory.
+- Background Apps Script refresh for matched tanks.
+- New-tank setup when an unknown barcode is scanned.
+- Search by gas, room, status, barcode, tank ID, and free-text terms.
+- Quick filters for all tanks, new tanks, in-use tanks, and empty tanks.
+- Editable tank cards for current gas, room, position, and status.
+- Duplicate active-barcode detection and visible conflict warnings.
+- Local CSV backup download from the browser.
+- Persistent settings for the Apps Script URL and default user initials.
+- Current and overflow sheet model for active records plus historical events.
+- Mobile scanning improvements including buffered reads, wide scan box, visible scan states, and camera focus messaging.
 
+## Repository Structure
 
-## v14 fix
-- Camera scans are now buffered for 0.5 seconds.
-- The app collects up to 5 reads at roughly 0.1 second intervals.
-- It chooses the most repeated barcode; if tied, it uses the longest raw read to avoid partial barcode reads.
+```text
+Gas-Inventory/
+  README.md
+  index.html        # Static web app shell
+  style.css         # Mobile-first UI styling
+  app.js            # Browser app, scanner, search, forms, Apps Script API calls
+  apps_script.gs    # Google Apps Script backend for the connected Sheet
+```
 
-## v15 fix
-- Added tap-to-focus support for phone browsers that expose camera focus controls.
-- Tapping the camera preview shows a focus pulse and requests focus from the active video track.
-- Browsers that block web camera focus controls now show a clear message instead of silently doing nothing.
+## Technology
 
-## v16 fix
-- Added a visible app version label in the header so phones can confirm they loaded the updated app.
-- Added a large scan status panel under the camera for checking, found, new barcode, saved, and error states.
-- Existing tank scans now show a prominent "Existing tank found" message with tank details instead of relying on the bottom toast.
+- Static HTML, CSS, and JavaScript frontend.
+- `html5-qrcode` loaded from a CDN for camera scanning.
+- Google Apps Script backend deployed as a Web App.
+- Google Sheets as the storage layer.
+- GitHub Pages-compatible deployment for the frontend.
 
-## v17 fix
-- Made the scan-in-progress state much more obvious with a full camera overlay that says not to rescan while lookup is running.
-- Polished the scanner UI, status cards, buttons, tabs, and mobile spacing.
-- Updated the checking/found/new/saved/error states so users can tell what happened without relying on the bottom toast.
+## Sheet Model
 
-## v18 fix
-- Widened the barcode scan box so older phones do not need to get as close to fill the target.
-- Request continuous camera focus automatically when the browser exposes it.
-- Changed unsupported tap-focus messaging so users know the browser is handling focus automatically.
+The Apps Script backend uses two tabs:
 
-## v19 fix
-- Existing tanks now open immediately from the loaded phone-side inventory instead of waiting for a Google Sheet lookup.
-- The app still refreshes the matched tank from Apps Script in the background.
-- Unknown barcodes still wait for the Sheet check to reduce accidental duplicate tank creation.
+| Sheet | Purpose |
+| --- | --- |
+| `Tanks` | Current active row for each tank barcode. |
+| `Overflow` | Older rows moved out of the active inventory when a tank is updated. |
 
-## v20 fix
-- Duplicate new-tank saves now return the existing tank instead of creating another current row.
-- Active duplicate rows are no longer silently hidden during list refresh.
-- Search results now flag duplicate active barcodes as conflicts so someone can clarify the real current status/location in the Sheet.
+Expected headers:
+
+```text
+Barcode | Tank ID | Gas | Room | Position | Status | Date Added | Date Set In Use | Date Emptied | Last Modified | Updated By | Event ID | Event Type
+```
+
+The script can migrate legacy headers such as `Location` to `Position` and `Last Updated` to `Last Modified`.
+
+## Deployment
+
+### 1. Upload Frontend Files To GitHub Pages
+
+Publish these files from the repository root:
+
+```text
+index.html
+style.css
+app.js
+```
+
+If using GitHub Pages, enable Pages for the repository and serve from the branch/folder that contains these files.
+
+### 2. Create The Google Sheet
+
+Create a Google Sheet for the tank inventory. The Apps Script will create or repair the required `Tanks` and `Overflow` tabs and headers when it runs.
+
+### 3. Add Apps Script Backend
+
+In the Google Sheet, open Apps Script and paste the contents of:
+
+```text
+apps_script.gs
+```
+
+Deploy it as a Web App:
+
+```text
+Deploy -> Manage deployments -> Edit -> New version -> Deploy
+```
+
+Keep the same Web App URL when redeploying after script changes.
+
+### 4. Connect The Web App
+
+Open the deployed inventory app, paste the Google Apps Script Web App URL into the setup card or Settings tab, and click **Save connection**.
+
+The app stores the URL in browser local storage on that device.
+
+## Basic Workflow
+
+1. Open the web app on a phone or desktop browser.
+2. Save the Google Apps Script Web App URL in Settings.
+3. Click **Refresh** to load current tank records.
+4. Use **Scan** to scan a tank barcode, or enter the barcode manually.
+5. If the tank exists, review or update its gas, room, position, status, and updater initials.
+6. If the barcode is new, fill in the tank details and add it.
+7. Use **Search** to filter tanks by gas, room, status, barcode, or text.
+8. Use **Download local CSV backup** from Settings when a quick browser-side export is needed.
+
+## Status Values
+
+| Status | Meaning |
+| --- | --- |
+| `New` | Tank is present and not yet set in use. |
+| `In Use` | Tank is currently connected or being used. |
+| `Empty` | Tank is empty and ready for return, replacement, or removal. |
+
+Status updates set the relevant date fields automatically where applicable.
+
+## Apps Script API Actions
+
+The frontend talks to the Apps Script Web App with JSONP requests. Supported actions include:
+
+| Action | Purpose |
+| --- | --- |
+| `list` | Return current tanks from the `Tanks` sheet. |
+| `lookup` | Find the latest matching tank by barcode or tank ID. |
+| `addTank` | Add a new active tank unless an active duplicate already exists. |
+| `updateStatus` | Append a status update and move the previous active row to `Overflow`. |
+| `updateFull` | Append a full metadata update and move the previous active row to `Overflow`. |
+
+## Troubleshooting
+
+**The app says setup is needed.**
+Paste the deployed Google Apps Script Web App URL into the setup card or Settings page.
+
+**Scans do not work on a phone.**
+Use HTTPS, allow camera permissions, and try the browser's rear camera. Some browsers manage focus automatically and do not expose manual tap-to-focus controls.
+
+**A barcode is found manually but not by camera.**
+Try moving the phone farther from the label. The app buffers multiple reads and chooses the most repeated or longest read, but partial scans can still happen on old phones or damaged labels.
+
+**A tank appears as a duplicate conflict.**
+More than one active row appears to share the same barcode. Open the Google Sheet and decide which row is the true current record.
+
+**Updates are not reaching the Sheet.**
+Confirm the Apps Script deployment is current, the Web App URL is unchanged, and the deployment allows the intended users to access it.
+
+## Changelog Highlights
+
+- v12: Unified scan and manual lookup through one `handleBarcode()` path.
+- v13: Replaced fragile save state with defensive global busy-state helpers.
+- v14: Added buffered camera reads to reduce partial barcode scans.
+- v15: Added tap-to-focus support where browsers expose camera focus controls.
+- v16: Added visible app version and prominent scan status states.
+- v17: Added scan-in-progress overlay and polished mobile scanner UI.
+- v18: Widened the scan box and improved camera focus messaging.
+- v19: Existing tanks open immediately from phone-side inventory, with background refresh.
+- v20: Duplicate new-tank saves return the existing tank and active duplicate conflicts are flagged.
+
+## License
+
+No license file is currently included in this repository. Add a license before distributing or reusing the code outside the project.
