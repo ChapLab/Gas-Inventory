@@ -4,6 +4,8 @@ ChapLab Gas Tank Inventory is a mobile-friendly web app for tracking laboratory 
 
 The app is designed for phone-first use around gas cylinder storage areas, instrument rooms, and shared lab spaces where quick barcode scanning and simple status updates matter more than a heavy database interface.
 
+**Live app:** [https://chaplab.github.io/Gas-Inventory/](https://chaplab.github.io/Gas-Inventory/)
+
 > Keywords: `gas tank inventory`, `gas cylinder inventory`, `lab inventory`, `laboratory inventory`, `barcode scanner`, `barcode lookup`, `mobile web app`, `Google Sheets`, `Google Apps Script`, `GitHub Pages`, `html5-qrcode`, `QR code scanner`, `cylinder tracking`, `tank tracking`, `gas tracking`, `room tracking`, `position tracking`, `inventory status`, `New`, `In Use`, `Empty`, `audit history`, `overflow sheet`, `JSONP API`, `Chapman Lab`, `ChapLab`, `scientific lab management`, `chemical inventory`, `Python-free web app`, `JavaScript`, `HTML`, `CSS`
 
 ## Data Storage And Access
