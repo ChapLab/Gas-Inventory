@@ -63,3 +63,8 @@ Keep the same Web App URL.
 - Existing tanks now open immediately from the loaded phone-side inventory instead of waiting for a Google Sheet lookup.
 - The app still refreshes the matched tank from Apps Script in the background.
 - Unknown barcodes still wait for the Sheet check to reduce accidental duplicate tank creation.
+
+## v20 fix
+- Duplicate new-tank saves now return the existing tank instead of creating another current row.
+- Active duplicate rows are no longer silently hidden during list refresh.
+- Search results now flag duplicate active barcodes as conflicts so someone can clarify the real current status/location in the Sheet.
