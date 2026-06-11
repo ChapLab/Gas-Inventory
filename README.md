@@ -6,11 +6,19 @@ The app is designed for phone-first use around gas cylinder storage areas, instr
 
 > Keywords: `gas tank inventory`, `gas cylinder inventory`, `lab inventory`, `laboratory inventory`, `barcode scanner`, `barcode lookup`, `mobile web app`, `Google Sheets`, `Google Apps Script`, `GitHub Pages`, `html5-qrcode`, `QR code scanner`, `cylinder tracking`, `tank tracking`, `gas tracking`, `room tracking`, `position tracking`, `inventory status`, `New`, `In Use`, `Empty`, `audit history`, `overflow sheet`, `JSONP API`, `Chapman Lab`, `ChapLab`, `scientific lab management`, `chemical inventory`, `Python-free web app`, `JavaScript`, `HTML`, `CSS`
 
+## Data Storage And Access
+
+All inventory data is stored in the connected Google Sheet. The GitHub repository and GitHub Pages site contain only the web app code: `index.html`, `style.css`, `app.js`, and the Apps Script source. They do not store the tank inventory database.
+
+Access to tank records is controlled by the Google Sheet and Google Apps Script deployment permissions. Users who do not have access to the connected Sheet or the deployed Apps Script Web App cannot view, search, add, or update the inventory through this app.
+
+For private lab inventory use, restrict the Google Sheet and Apps Script Web App to the intended lab members or organization accounts. Do not deploy the Apps Script Web App with public `Anyone` access if the inventory should remain private.
+
 ## What It Does
 
 The inventory app provides a lightweight front end for a Google Sheet-based gas tank database. Users can scan a tank barcode with a phone camera, search the loaded inventory, add a new tank, update tank metadata, or mark a tank as `New`, `In Use`, or `Empty`.
 
-The active sheet stores the current record for each barcode. Older records are moved into an overflow sheet so the current inventory stays clean while historical updates remain available.
+The active sheet stores the current record for each barcode. Older records are moved into an overflow sheet so the current inventory stays clean while historical updates remain available. No inventory records are stored in this GitHub repository.
 
 ## Features
 
@@ -46,12 +54,12 @@ Gas-Inventory/
 - Static HTML, CSS, and JavaScript frontend.
 - `html5-qrcode` loaded from a CDN for camera scanning.
 - Google Apps Script backend deployed as a Web App.
-- Google Sheets as the storage layer.
-- GitHub Pages-compatible deployment for the frontend.
+- Google Sheets as the only persistent storage layer for tank inventory records.
+- GitHub Pages-compatible deployment for the frontend code only.
 
 ## Sheet Model
 
-The Apps Script backend uses two tabs:
+The Apps Script backend uses two tabs in the connected Google Sheet:
 
 | Sheet | Purpose |
 | --- | --- |
@@ -78,11 +86,13 @@ style.css
 app.js
 ```
 
-If using GitHub Pages, enable Pages for the repository and serve from the branch/folder that contains these files.
+If using GitHub Pages, enable Pages for the repository and serve from the branch/folder that contains these files. GitHub Pages hosts the app interface only; it does not host or expose the inventory data.
 
 ### 2. Create The Google Sheet
 
-Create a Google Sheet for the tank inventory. The Apps Script will create or repair the required `Tanks` and `Overflow` tabs and headers when it runs.
+Create a Google Sheet for the tank inventory. This Sheet is the inventory database. The Apps Script will create or repair the required `Tanks` and `Overflow` tabs and headers when it runs.
+
+Share the Sheet only with users who should be allowed to see or manage the inventory.
 
 ### 3. Add Apps Script Backend
 
@@ -98,19 +108,19 @@ Deploy it as a Web App:
 Deploy -> Manage deployments -> Edit -> New version -> Deploy
 ```
 
-Keep the same Web App URL when redeploying after script changes.
+Keep the same Web App URL when redeploying after script changes. For private inventory use, set the Web App access permissions so only authorized users can run it. Do not choose public `Anyone` access unless the inventory is intended to be public.
 
 ### 4. Connect The Web App
 
 Open the deployed inventory app, paste the Google Apps Script Web App URL into the setup card or Settings tab, and click **Save connection**.
 
-The app stores the URL in browser local storage on that device.
+The app stores the URL in browser local storage on that device. The URL is a connection setting, not a copy of the inventory database.
 
 ## Basic Workflow
 
 1. Open the web app on a phone or desktop browser.
 2. Save the Google Apps Script Web App URL in Settings.
-3. Click **Refresh** to load current tank records.
+3. Click **Refresh** to load current tank records from the connected Google Sheet.
 4. Use **Scan** to scan a tank barcode, or enter the barcode manually.
 5. If the tank exists, review or update its gas, room, position, status, and updater initials.
 6. If the barcode is new, fill in the tank details and add it.
@@ -129,7 +139,9 @@ Status updates set the relevant date fields automatically where applicable.
 
 ## Apps Script API Actions
 
-The frontend talks to the Apps Script Web App with JSONP requests. Supported actions include:
+The frontend talks to the Apps Script Web App with JSONP requests. The Apps Script reads from and writes to the connected Google Sheet; the frontend does not maintain a separate server-side database.
+
+Supported actions include:
 
 | Action | Purpose |
 | --- | --- |
@@ -143,6 +155,12 @@ The frontend talks to the Apps Script Web App with JSONP requests. Supported act
 
 **The app says setup is needed.**
 Paste the deployed Google Apps Script Web App URL into the setup card or Settings page.
+
+**Someone cannot see the inventory.**
+Confirm that they have permission to access both the Google Sheet and the Apps Script Web App deployment. The app cannot show tank records to users who are not authorized for the connected Google resources.
+
+**You need to keep tank data private.**
+Restrict the Google Sheet sharing settings and Apps Script Web App access to the intended lab members or organization. Avoid public `Anyone` deployment settings.
 
 **Scans do not work on a phone.**
 Use HTTPS, allow camera permissions, and try the browser's rear camera. Some browsers manage focus automatically and do not expose manual tap-to-focus controls.
