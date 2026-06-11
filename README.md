@@ -104,7 +104,43 @@ In the Google Sheet, open Apps Script and paste the contents of:
 apps_script.gs
 ```
 
-Deploy it as a Web App:
+You can open Apps Script from the Sheet by choosing:
+
+```text
+Extensions -> Apps Script
+```
+
+If the Apps Script editor opens with a default `Code.gs` file, replace its contents with the contents of `apps_script.gs` from this repository. Save the project.
+
+### 4. Deploy Apps Script And Copy The Link
+
+In the Apps Script editor, create a Web App deployment:
+
+```text
+Deploy -> New deployment -> Select type -> Web app
+```
+
+Use these deployment settings:
+
+| Setting | Recommended value |
+| --- | --- |
+| Description | `Gas Tank Inventory API` or similar |
+| Execute as | `Me` |
+| Who has access | Your lab, organization, or intended users |
+
+Click **Deploy**. Google may ask you to authorize the script the first time. After deployment, Apps Script shows a **Web app URL**. This is the `script.google.com` link to paste into the Tank Inventory app.
+
+The URL usually looks like this:
+
+```text
+https://script.google.com/macros/s/DEPLOYMENT_ID/exec
+```
+
+Copy the `/exec` Web App URL, not the Apps Script editor URL. The editor URL usually starts with `https://script.google.com/home/projects/...` and will not work as the app connection URL.
+
+### 5. Redeploy After Script Changes
+
+If you edit `apps_script.gs`, redeploy the Web App so the live endpoint uses the new code:
 
 ```text
 Deploy -> Manage deployments -> Edit -> New version -> Deploy
@@ -112,7 +148,7 @@ Deploy -> Manage deployments -> Edit -> New version -> Deploy
 
 Keep the same Web App URL when redeploying after script changes. For private inventory use, set the Web App access permissions so only authorized users can run it. Do not choose public `Anyone` access unless the inventory is intended to be public.
 
-### 4. Connect The Web App
+### 6. Connect The Web App
 
 Open the deployed inventory app, paste the Google Apps Script Web App URL into the setup card or Settings tab, and click **Save connection**.
 
@@ -156,7 +192,13 @@ Supported actions include:
 ## Troubleshooting
 
 **The app says setup is needed.**
-Paste the deployed Google Apps Script Web App URL into the setup card or Settings page.
+Paste the deployed Google Apps Script Web App URL into the setup card or Settings page. The URL should look like `https://script.google.com/macros/s/.../exec`.
+
+**Where do I get the `script.google.com` link?**
+Open the inventory Google Sheet, go to **Extensions -> Apps Script**, deploy the script as a **Web app**, then copy the **Web app URL** shown after deployment.
+
+**My `script.google.com` link does not work.**
+Make sure you copied the Web App URL ending in `/exec`, not the Apps Script editor URL. Also confirm the deployment was updated after the latest script changes.
 
 **Someone cannot see the inventory.**
 Confirm that they have permission to access both the Google Sheet and the Apps Script Web App deployment. The app cannot show tank records to users who are not authorized for the connected Google resources.
