@@ -58,3 +58,8 @@ Keep the same Web App URL.
 - Widened the barcode scan box so older phones do not need to get as close to fill the target.
 - Request continuous camera focus automatically when the browser exposes it.
 - Changed unsupported tap-focus messaging so users know the browser is handling focus automatically.
+
+## v19 fix
+- Existing tanks now open immediately from the loaded phone-side inventory instead of waiting for a Google Sheet lookup.
+- The app still refreshes the matched tank from Apps Script in the background.
+- Unknown barcodes still wait for the Sheet check to reduce accidental duplicate tank creation.
