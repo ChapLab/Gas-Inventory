@@ -13,6 +13,7 @@ var scanStartTime=0;
 var scanBufferTimer=null;
 var scanCollecting=false;
 var scanPaused=false;
+var focusTapCleanup=null;
 
 const el=id=>document.getElementById(id);
 const normBarcode=value=>String(value||"").trim().replace(/[^a-zA-Z0-9]/g,"").toUpperCase();
@@ -711,6 +712,102 @@ function finalizeScanBuffer(){
   handleBarcode(chosen);
 }
 
+function getActiveVideoTrack(){
+  const video=document.querySelector("#reader video");
+  const stream=video&&video.srcObject;
+  if(!stream||!stream.getVideoTracks) return null;
+  return stream.getVideoTracks()[0]||null;
+}
+
+function scannerSupportsFocus(track){
+  if(!track||!track.getCapabilities) return false;
+  const caps=track.getCapabilities();
+  return !!(
+    (Array.isArray(caps.focusMode)&&caps.focusMode.length)||
+    caps.pointsOfInterest
+  );
+}
+
+async function requestCameraFocus(x,y){
+  const track=getActiveVideoTrack();
+  if(!track||!track.applyConstraints){
+    showToast("Tap-to-focus is not available on this camera.");
+    return;
+  }
+
+  const caps=track.getCapabilities?track.getCapabilities():{};
+  const focusMode=Array.isArray(caps.focusMode)
+    ? (caps.focusMode.includes("single-shot")?"single-shot":(caps.focusMode.includes("continuous")?"continuous":caps.focusMode[0]))
+    : null;
+  const focusPoint={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};
+  const attempts=[];
+
+  if(caps.pointsOfInterest&&focusMode) attempts.push({advanced:[{focusMode,pointsOfInterest:[focusPoint]}]});
+  if(caps.pointsOfInterest) attempts.push({advanced:[{pointsOfInterest:[focusPoint]}]});
+  if(focusMode) attempts.push({advanced:[{focusMode}]});
+
+  for(const constraints of attempts){
+    try{
+      await track.applyConstraints(constraints);
+      showToast("Camera focus requested.");
+      return;
+    }catch(err){
+      console.warn("Focus constraint failed",err);
+    }
+  }
+
+  showToast("This browser does not allow tap-to-focus.");
+}
+
+function showFocusPulse(reader,x,y){
+  const pulse=document.createElement("span");
+  pulse.className="focus-pulse";
+  pulse.style.left=`${x}px`;
+  pulse.style.top=`${y}px`;
+  reader.appendChild(pulse);
+  setTimeout(()=>pulse.remove(),650);
+}
+
+function attachTapToFocus(){
+  detachTapToFocus();
+  const reader=el("reader");
+  if(!reader) return;
+
+  let focusSupported=null;
+  const onPointerUp=event=>{
+    if(!scanner) return;
+    const rect=reader.getBoundingClientRect();
+    const x=event.clientX-rect.left;
+    const y=event.clientY-rect.top;
+    if(x<0||y<0||x>rect.width||y>rect.height) return;
+
+    showFocusPulse(reader,x,y);
+
+    const track=getActiveVideoTrack();
+    if(!track){
+      showToast("Camera is still starting. Try tapping again.");
+      return;
+    }
+    if(focusSupported===null) focusSupported=scannerSupportsFocus(track);
+    if(!focusSupported){
+      showToast("This phone/browser does not expose camera focus controls.");
+      return;
+    }
+
+    requestCameraFocus(x/rect.width,y/rect.height);
+  };
+
+  reader.addEventListener("pointerup",onPointerUp);
+  focusTapCleanup=()=>reader.removeEventListener("pointerup",onPointerUp);
+}
+
+function detachTapToFocus(){
+  if(focusTapCleanup){
+    focusTapCleanup();
+    focusTapCleanup=null;
+  }
+}
+
 function startScanner(){
   if(!window.Html5QrcodeScanner){showToast("Scanner library did not load. Check internet connection.");return;}
   if(scanner){showToast("Scanner is already open.");return;}
@@ -752,12 +849,15 @@ function startScanner(){
     scanCooldown=true;
     setTimeout(()=>{scanCooldown=false;},100);
   });
+
+  attachTapToFocus();
 }
 
 async function stopScanner(){
   scanCollecting=false;
   scanBuffer=[];
   scanPaused=false;
+  detachTapToFocus();
   if(scanBufferTimer){clearTimeout(scanBufferTimer);scanBufferTimer=null;}
   if(scanner){
     try{await scanner.clear();}catch(err){console.warn(err);}
