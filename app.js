@@ -1,5 +1,5 @@
 const ADD_NEW_VALUE="__ADD_NEW__";
-const APP_VERSION="v17";
+const APP_VERSION="v18";
 const STORAGE_KEYS={scriptUrl:"gasTankScriptUrl",defaultUser:"gasTankDefaultUser"};
 
 // Use var so these are safely initialized before any event handler can touch them.
@@ -778,6 +778,29 @@ function scannerSupportsFocus(track){
   );
 }
 
+function barcodeQrbox(viewfinderWidth,viewfinderHeight){
+  return {
+    width:Math.floor(viewfinderWidth*0.82),
+    height:Math.max(110,Math.floor(viewfinderHeight*0.28))
+  };
+}
+
+async function requestContinuousFocus(){
+  const track=getActiveVideoTrack();
+  if(!track||!track.applyConstraints||!track.getCapabilities) return false;
+
+  const caps=track.getCapabilities();
+  if(!Array.isArray(caps.focusMode)||!caps.focusMode.includes("continuous")) return false;
+
+  try{
+    await track.applyConstraints({advanced:[{focusMode:"continuous"}]});
+    return true;
+  }catch(err){
+    console.warn("Continuous focus constraint failed",err);
+    return false;
+  }
+}
+
 async function requestCameraFocus(x,y){
   const track=getActiveVideoTrack();
   if(!track||!track.applyConstraints){
@@ -806,7 +829,7 @@ async function requestCameraFocus(x,y){
     }
   }
 
-  showToast("This browser does not allow tap-to-focus.");
+  showToast("Tap registered. This browser is already controlling focus.");
 }
 
 function showFocusPulse(reader,x,y){
@@ -840,7 +863,7 @@ function attachTapToFocus(){
     }
     if(focusSupported===null) focusSupported=scannerSupportsFocus(track);
     if(!focusSupported){
-      showToast("This phone/browser does not expose camera focus controls.");
+      showToast("Tap registered. This phone browser controls focus automatically.");
       return;
     }
 
@@ -872,7 +895,7 @@ function startScanner(){
 
   scanner=new Html5QrcodeScanner("reader",{
     fps:10,
-    qrbox:(viewfinderWidth, viewfinderHeight)=>{ return {width:Math.floor(viewfinderWidth*0.5), height:Math.floor(viewfinderHeight*0.2)}; },
+    qrbox:barcodeQrbox,
     rememberLastUsedCamera:true,
     supportedScanTypes:[Html5QrcodeScanType.SCAN_TYPE_CAMERA],
     formatsToSupport:[
@@ -904,6 +927,7 @@ function startScanner(){
   });
 
   attachTapToFocus();
+  setTimeout(()=>requestContinuousFocus(),900);
 }
 
 async function stopScanner(){
