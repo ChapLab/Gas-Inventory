@@ -1,5 +1,5 @@
 const ADD_NEW_VALUE="__ADD_NEW__";
-const APP_VERSION="v18";
+const APP_VERSION="v19";
 const STORAGE_KEYS={scriptUrl:"gasTankScriptUrl",defaultUser:"gasTankDefaultUser"};
 
 // Use var so these are safely initialized before any event handler can touch them.
@@ -218,6 +218,12 @@ async function handleBarcode(rawBarcode){
   try{
     let found=tanks.find(t=>normBarcode(t["Barcode"])===normalized || normBarcode(t["Tank ID"])===normalized);
 
+    if(found){
+      showFoundTank(found,raw);
+      refreshFoundTank(raw,normalized);
+      return;
+    }
+
     if(getScriptUrl()){
       try{
         const data=await api("lookup",{barcode:raw,normalizedBarcode:normalized});
@@ -236,13 +242,7 @@ async function handleBarcode(rawBarcode){
     }
 
     if(found){
-      setScanOverlay("found","TANK FOUND","Review the details below.");
-      setScanStatus(
-        "found",
-        "Existing tank found",
-        `${found["Tank ID"]||found["Barcode"]||raw} - ${found["Gas"]||"Unknown gas"} - ${found["Status"]||"No status"}`
-      );
-      renderKnownTankUpdate(found,raw);
+      showFoundTank(found,raw);
     }else{
       setScanOverlay("new","NEW BARCODE","Add this tank below.");
       setScanStatus("new","New barcode found",raw);
@@ -254,6 +254,35 @@ async function handleBarcode(rawBarcode){
   }
 
   setTimeout(()=>scrollToEl("scanResult"),100);
+}
+
+function showFoundTank(tank,raw){
+  setScanOverlay("found","TANK FOUND","Review the details below.");
+  setScanStatus(
+    "found",
+    "Existing tank found",
+    `${tank["Tank ID"]||tank["Barcode"]||raw} - ${tank["Gas"]||"Unknown gas"} - ${tank["Status"]||"No status"}`
+  );
+  renderKnownTankUpdate(tank,raw);
+  setTimeout(()=>scrollToEl("scanResult"),100);
+}
+
+async function refreshFoundTank(raw,normalized){
+  if(!getScriptUrl()) return;
+
+  try{
+    const data=await api("lookup",{barcode:raw,normalizedBarcode:normalized});
+    if(!data.tank) return;
+
+    const index=tanks.findIndex(t=>normBarcode(t["Barcode"])===normalized || normBarcode(t["Tank ID"])===normalized);
+    if(index>=0) tanks[index]=data.tank;
+    else tanks.push(data.tank);
+
+    populateAllOptions();
+    renderResults();
+  }catch(err){
+    console.warn(err);
+  }
 }
 
 function renderErrorCard(raw,err){
