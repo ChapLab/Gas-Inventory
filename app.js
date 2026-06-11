@@ -1,4 +1,5 @@
 const ADD_NEW_VALUE="__ADD_NEW__";
+const APP_VERSION="v16";
 const STORAGE_KEYS={scriptUrl:"gasTankScriptUrl",defaultUser:"gasTankDefaultUser"};
 
 // Use var so these are safely initialized before any event handler can touch them.
@@ -13,6 +14,7 @@ var scanStartTime=0;
 var scanBufferTimer=null;
 var scanCollecting=false;
 var scanPaused=false;
+var focusTapCleanup=null;
 
 const el=id=>document.getElementById(id);
 const normBarcode=value=>String(value||"").trim().replace(/[^a-zA-Z0-9]/g,"").toUpperCase();
@@ -29,6 +31,8 @@ window.appBusy=false;
 
 document.addEventListener("DOMContentLoaded",()=>{
   bindEvents();
+  renderAppVersion();
+  setScanStatus("ready","Ready to scan","Start the scanner and point it at a tank barcode.");
   loadSettings();
   refreshData();
 });
@@ -118,6 +122,19 @@ function updateConnectionStatus(message=""){
   if(el("connectionStatus")) el("connectionStatus").textContent=message||(hasUrl?"Connected to Google Sheet":"Paste Apps Script URL to connect");
 }
 
+function renderAppVersion(){
+  if(el("appVersion")) el("appVersion").textContent=`App ${APP_VERSION}`;
+}
+
+function setScanStatus(type,title,detail=""){
+  const node=el("scanStatus");
+  if(!node) return;
+  node.className=`scan-status ${type||"ready"}`;
+  node.innerHTML=`
+    <div class="scan-status-title">${escapeHtml(title)}</div>
+    ${detail?`<div class="scan-status-detail">${escapeHtml(detail)}</div>`:""}`;
+}
+
 function api(action,payload={}){
   return new Promise((resolve,reject)=>{
     const url=getScriptUrl();
@@ -180,6 +197,7 @@ async function handleBarcode(rawBarcode){
     return;
   }
 
+  setScanStatus("checking","Checking barcode",raw);
   showToast("Checking barcode...");
 
   try{
@@ -203,10 +221,14 @@ async function handleBarcode(rawBarcode){
     }
 
     if(found){
-      showToast("Existing tank found.");
+      setScanStatus(
+        "found",
+        "Existing tank found",
+        `${found["Tank ID"]||found["Barcode"]||raw} - ${found["Gas"]||"Unknown gas"} - ${found["Status"]||"No status"}`
+      );
       renderKnownTankUpdate(found,raw);
     }else{
-      showToast("No match found. Opening new tank form.");
+      setScanStatus("new","New barcode found",raw);
       renderNewTankSetup(raw);
     }
   }catch(err){
@@ -218,6 +240,7 @@ async function handleBarcode(rawBarcode){
 }
 
 function renderErrorCard(raw,err){
+  setScanStatus("error","Scan error",err.message||String(err));
   el("scanResult").innerHTML=`
     <div class="card error-card">
       <h2>Form error</h2>
@@ -433,6 +456,7 @@ function renderKnownTankUpdate(t,rawScanned=""){
   on("clearScanFormBtn","click",()=>{
     el("scanResult").innerHTML="";
     scanPaused = false;
+    setScanStatus("ready","Ready to scan","Point the camera at the next tank barcode.");
     showToast("Ready to scan next tank.");
   });
 }
@@ -477,6 +501,7 @@ function renderNewTankSetup(rawScanned){
   on("clearScanFormBtn","click",()=>{
     el("scanResult").innerHTML="";
     scanPaused = false;
+    setScanStatus("ready","Ready to scan","Point the camera at the next tank barcode.");
     showToast("Ready to scan next tank.");
   });
 }
@@ -542,6 +567,7 @@ async function saveExistingTank(barcode){
   try{
     await api("updateFull",{barcode,tank:updates});
     showToast("Tank updated.");
+    setScanStatus("saved","Tank update saved",barcode);
     el("scanResult").dataset.saved="true";
     el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");
     scrollToEl("cameraCard");
@@ -609,6 +635,7 @@ async function saveNewTank(tank,fromScan){
     await api("addTank",{tank});
     showToast("New tank added.");
     if(fromScan && el("scanResult")){
+      setScanStatus("saved","New tank saved",barcode);
       el("scanResult").dataset.saved="true";
       el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");
     }else{
@@ -707,8 +734,105 @@ function finalizeScanBuffer(){
   }
 
   scanPaused = true;
+  setScanStatus("found","Barcode found",chosen);
   showToast("Barcode confirmed");
   handleBarcode(chosen);
+}
+
+function getActiveVideoTrack(){
+  const video=document.querySelector("#reader video");
+  const stream=video&&video.srcObject;
+  if(!stream||!stream.getVideoTracks) return null;
+  return stream.getVideoTracks()[0]||null;
+}
+
+function scannerSupportsFocus(track){
+  if(!track||!track.getCapabilities) return false;
+  const caps=track.getCapabilities();
+  return !!(
+    (Array.isArray(caps.focusMode)&&caps.focusMode.length)||
+    caps.pointsOfInterest
+  );
+}
+
+async function requestCameraFocus(x,y){
+  const track=getActiveVideoTrack();
+  if(!track||!track.applyConstraints){
+    showToast("Tap-to-focus is not available on this camera.");
+    return;
+  }
+
+  const caps=track.getCapabilities?track.getCapabilities():{};
+  const focusMode=Array.isArray(caps.focusMode)
+    ? (caps.focusMode.includes("single-shot")?"single-shot":(caps.focusMode.includes("continuous")?"continuous":caps.focusMode[0]))
+    : null;
+  const focusPoint={x:Math.max(0,Math.min(1,x)),y:Math.max(0,Math.min(1,y))};
+  const attempts=[];
+
+  if(caps.pointsOfInterest&&focusMode) attempts.push({advanced:[{focusMode,pointsOfInterest:[focusPoint]}]});
+  if(caps.pointsOfInterest) attempts.push({advanced:[{pointsOfInterest:[focusPoint]}]});
+  if(focusMode) attempts.push({advanced:[{focusMode}]});
+
+  for(const constraints of attempts){
+    try{
+      await track.applyConstraints(constraints);
+      showToast("Camera focus requested.");
+      return;
+    }catch(err){
+      console.warn("Focus constraint failed",err);
+    }
+  }
+
+  showToast("This browser does not allow tap-to-focus.");
+}
+
+function showFocusPulse(reader,x,y){
+  const pulse=document.createElement("span");
+  pulse.className="focus-pulse";
+  pulse.style.left=`${x}px`;
+  pulse.style.top=`${y}px`;
+  reader.appendChild(pulse);
+  setTimeout(()=>pulse.remove(),650);
+}
+
+function attachTapToFocus(){
+  detachTapToFocus();
+  const reader=el("reader");
+  if(!reader) return;
+
+  let focusSupported=null;
+  const onPointerUp=event=>{
+    if(!scanner) return;
+    const rect=reader.getBoundingClientRect();
+    const x=event.clientX-rect.left;
+    const y=event.clientY-rect.top;
+    if(x<0||y<0||x>rect.width||y>rect.height) return;
+
+    showFocusPulse(reader,x,y);
+
+    const track=getActiveVideoTrack();
+    if(!track){
+      showToast("Camera is still starting. Try tapping again.");
+      return;
+    }
+    if(focusSupported===null) focusSupported=scannerSupportsFocus(track);
+    if(!focusSupported){
+      showToast("This phone/browser does not expose camera focus controls.");
+      return;
+    }
+
+    requestCameraFocus(x/rect.width,y/rect.height);
+  };
+
+  reader.addEventListener("pointerup",onPointerUp);
+  focusTapCleanup=()=>reader.removeEventListener("pointerup",onPointerUp);
+}
+
+function detachTapToFocus(){
+  if(focusTapCleanup){
+    focusTapCleanup();
+    focusTapCleanup=null;
+  }
 }
 
 function startScanner(){
@@ -717,6 +841,7 @@ function startScanner(){
   if(!el("reader")){showToast("Scanner area not found.");return;}
 
   el("reader").classList.remove("hidden");
+  setScanStatus("ready","Scanner active","Point the camera at a tank barcode.");
   if(el("startScanBtn")) el("startScanBtn").classList.add("hidden");
   if(el("stopScanBtn")) el("stopScanBtn").classList.remove("hidden");
 
@@ -752,18 +877,22 @@ function startScanner(){
     scanCooldown=true;
     setTimeout(()=>{scanCooldown=false;},100);
   });
+
+  attachTapToFocus();
 }
 
 async function stopScanner(){
   scanCollecting=false;
   scanBuffer=[];
   scanPaused=false;
+  detachTapToFocus();
   if(scanBufferTimer){clearTimeout(scanBufferTimer);scanBufferTimer=null;}
   if(scanner){
     try{await scanner.clear();}catch(err){console.warn(err);}
     scanner=null;
   }
   if(el("reader")) el("reader").classList.add("hidden");
+  setScanStatus("ready","Scanner stopped","Start the scanner when you are ready.");
   if(el("startScanBtn")) el("startScanBtn").classList.remove("hidden");
   if(el("stopScanBtn")) el("stopScanBtn").classList.add("hidden");
 }
