@@ -1,5 +1,5 @@
 const ADD_NEW_VALUE="__ADD_NEW__";
-const APP_VERSION="v21";
+const APP_VERSION="v22";
 const STORAGE_KEYS={scriptUrl:"gasTankScriptUrl",defaultUser:"gasTankDefaultUser"};
 
 // Use var so these are safely initialized before any event handler can touch them.
@@ -845,8 +845,8 @@ function scannerSupportsFocus(track){
 }
 
 function barcodeQrbox(viewfinderWidth,viewfinderHeight){
-  const width=Math.min(360,Math.floor(viewfinderWidth*0.64));
-  const height=Math.max(82,Math.min(110,Math.floor(viewfinderHeight*0.2)));
+  const width=Math.min(240,Math.floor(viewfinderWidth*0.42));
+  const height=Math.max(58,Math.min(78,Math.floor(viewfinderHeight*0.14)));
 
   return {
     width,

@@ -230,6 +230,7 @@ Confirm the Apps Script deployment is current, the Web App URL is unchanged, and
 - v19: Existing tanks open immediately from phone-side inventory, with background refresh.
 - v20: Duplicate new-tank saves return the existing tank and active duplicate conflicts are flagged.
 - v21: Reduced the scan box so older phones can read tank barcodes from farther back before autofocus kicks in.
+- v22: Tightened the scan box further for phones that still focus too close to tank labels.
 
 ## License
 
