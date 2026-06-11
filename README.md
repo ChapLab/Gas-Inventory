@@ -43,3 +43,8 @@ Keep the same Web App URL.
 - Added tap-to-focus support for phone browsers that expose camera focus controls.
 - Tapping the camera preview shows a focus pulse and requests focus from the active video track.
 - Browsers that block web camera focus controls now show a clear message instead of silently doing nothing.
+
+## v16 fix
+- Added a visible app version label in the header so phones can confirm they loaded the updated app.
+- Added a large scan status panel under the camera for checking, found, new barcode, saved, and error states.
+- Existing tank scans now show a prominent "Existing tank found" message with tank details instead of relying on the bottom toast.

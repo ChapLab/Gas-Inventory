@@ -1,4 +1,5 @@
 const ADD_NEW_VALUE="__ADD_NEW__";
+const APP_VERSION="v16";
 const STORAGE_KEYS={scriptUrl:"gasTankScriptUrl",defaultUser:"gasTankDefaultUser"};
 
 // Use var so these are safely initialized before any event handler can touch them.
@@ -30,6 +31,8 @@ window.appBusy=false;
 
 document.addEventListener("DOMContentLoaded",()=>{
   bindEvents();
+  renderAppVersion();
+  setScanStatus("ready","Ready to scan","Start the scanner and point it at a tank barcode.");
   loadSettings();
   refreshData();
 });
@@ -119,6 +122,19 @@ function updateConnectionStatus(message=""){
   if(el("connectionStatus")) el("connectionStatus").textContent=message||(hasUrl?"Connected to Google Sheet":"Paste Apps Script URL to connect");
 }
 
+function renderAppVersion(){
+  if(el("appVersion")) el("appVersion").textContent=`App ${APP_VERSION}`;
+}
+
+function setScanStatus(type,title,detail=""){
+  const node=el("scanStatus");
+  if(!node) return;
+  node.className=`scan-status ${type||"ready"}`;
+  node.innerHTML=`
+    <div class="scan-status-title">${escapeHtml(title)}</div>
+    ${detail?`<div class="scan-status-detail">${escapeHtml(detail)}</div>`:""}`;
+}
+
 function api(action,payload={}){
   return new Promise((resolve,reject)=>{
     const url=getScriptUrl();
@@ -181,6 +197,7 @@ async function handleBarcode(rawBarcode){
     return;
   }
 
+  setScanStatus("checking","Checking barcode",raw);
   showToast("Checking barcode...");
 
   try{
@@ -204,10 +221,14 @@ async function handleBarcode(rawBarcode){
     }
 
     if(found){
-      showToast("Existing tank found.");
+      setScanStatus(
+        "found",
+        "Existing tank found",
+        `${found["Tank ID"]||found["Barcode"]||raw} - ${found["Gas"]||"Unknown gas"} - ${found["Status"]||"No status"}`
+      );
       renderKnownTankUpdate(found,raw);
     }else{
-      showToast("No match found. Opening new tank form.");
+      setScanStatus("new","New barcode found",raw);
       renderNewTankSetup(raw);
     }
   }catch(err){
@@ -219,6 +240,7 @@ async function handleBarcode(rawBarcode){
 }
 
 function renderErrorCard(raw,err){
+  setScanStatus("error","Scan error",err.message||String(err));
   el("scanResult").innerHTML=`
     <div class="card error-card">
       <h2>Form error</h2>
@@ -434,6 +456,7 @@ function renderKnownTankUpdate(t,rawScanned=""){
   on("clearScanFormBtn","click",()=>{
     el("scanResult").innerHTML="";
     scanPaused = false;
+    setScanStatus("ready","Ready to scan","Point the camera at the next tank barcode.");
     showToast("Ready to scan next tank.");
   });
 }
@@ -478,6 +501,7 @@ function renderNewTankSetup(rawScanned){
   on("clearScanFormBtn","click",()=>{
     el("scanResult").innerHTML="";
     scanPaused = false;
+    setScanStatus("ready","Ready to scan","Point the camera at the next tank barcode.");
     showToast("Ready to scan next tank.");
   });
 }
@@ -543,6 +567,7 @@ async function saveExistingTank(barcode){
   try{
     await api("updateFull",{barcode,tank:updates});
     showToast("Tank updated.");
+    setScanStatus("saved","Tank update saved",barcode);
     el("scanResult").dataset.saved="true";
     el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");
     scrollToEl("cameraCard");
@@ -610,6 +635,7 @@ async function saveNewTank(tank,fromScan){
     await api("addTank",{tank});
     showToast("New tank added.");
     if(fromScan && el("scanResult")){
+      setScanStatus("saved","New tank saved",barcode);
       el("scanResult").dataset.saved="true";
       el("scanResult").innerHTML=emptyState("Saved. Keep scanning or stop the scanner when done.");
     }else{
@@ -708,6 +734,7 @@ function finalizeScanBuffer(){
   }
 
   scanPaused = true;
+  setScanStatus("found","Barcode found",chosen);
   showToast("Barcode confirmed");
   handleBarcode(chosen);
 }
@@ -814,6 +841,7 @@ function startScanner(){
   if(!el("reader")){showToast("Scanner area not found.");return;}
 
   el("reader").classList.remove("hidden");
+  setScanStatus("ready","Scanner active","Point the camera at a tank barcode.");
   if(el("startScanBtn")) el("startScanBtn").classList.add("hidden");
   if(el("stopScanBtn")) el("stopScanBtn").classList.remove("hidden");
 
@@ -864,6 +892,7 @@ async function stopScanner(){
     scanner=null;
   }
   if(el("reader")) el("reader").classList.add("hidden");
+  setScanStatus("ready","Scanner stopped","Start the scanner when you are ready.");
   if(el("startScanBtn")) el("startScanBtn").classList.remove("hidden");
   if(el("stopScanBtn")) el("stopScanBtn").classList.add("hidden");
 }
