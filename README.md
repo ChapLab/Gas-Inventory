@@ -48,3 +48,8 @@ Keep the same Web App URL.
 - Added a visible app version label in the header so phones can confirm they loaded the updated app.
 - Added a large scan status panel under the camera for checking, found, new barcode, saved, and error states.
 - Existing tank scans now show a prominent "Existing tank found" message with tank details instead of relying on the bottom toast.
+
+## v17 fix
+- Made the scan-in-progress state much more obvious with a full camera overlay that says not to rescan while lookup is running.
+- Polished the scanner UI, status cards, buttons, tabs, and mobile spacing.
+- Updated the checking/found/new/saved/error states so users can tell what happened without relying on the bottom toast.

@@ -37,9 +37,14 @@
         <h2>Scan tank barcode</h2>
         <p>Known tank: update gas, room, position, and status. New barcode: set up a new tank.</p>
 
-        <button id="startScanBtn">Start scanner</button>
-        <button id="stopScanBtn" class="secondary hidden">Stop scanner</button>
-        <div id="reader" class="reader hidden"></div>
+        <div class="scan-controls">
+          <button id="startScanBtn">Start scanner</button>
+          <button id="stopScanBtn" class="secondary hidden">Stop scanner</button>
+        </div>
+        <div id="scannerFrame" class="scanner-frame hidden">
+          <div id="reader" class="reader hidden"></div>
+          <div id="scanOverlay" class="scan-overlay hidden"></div>
+        </div>
         <div id="scanStatus" class="scan-status ready"></div>
         <p class="hint">Leave the scanner open while checking tanks. On supported phones, tap the camera preview to refocus on the barcode.</p>
 
