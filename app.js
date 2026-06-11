@@ -1,5 +1,5 @@
 const ADD_NEW_VALUE="__ADD_NEW__";
-const APP_VERSION="v19";
+const APP_VERSION="v20";
 const STORAGE_KEYS={scriptUrl:"gasTankScriptUrl",defaultUser:"gasTankDefaultUser"};
 
 // Use var so these are safely initialized before any event handler can touch them.
@@ -318,6 +318,20 @@ function uniqueValues(key){
   return [...new Set(tanks.map(t=>(t[key]||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 }
 
+function markTankConflicts(rows){
+  const counts={};
+  rows.forEach(t=>{
+    const key=normBarcode(t["Barcode"]||t["Tank ID"]);
+    if(key) counts[key]=(counts[key]||0)+1;
+  });
+
+  return rows.map(t=>{
+    const key=normBarcode(t["Barcode"]||t["Tank ID"]);
+    if(!key||counts[key]<2) return {...t,__conflict:false,__conflictCount:0};
+    return {...t,__conflict:true,__conflictCount:counts[key]};
+  });
+}
+
 function positionsForRoom(room){
   const normalized=(room||"").trim().toLowerCase();
   const positions=tanks
@@ -387,7 +401,10 @@ function renderResults(){
   const status=el("statusFilter")?el("statusFilter").value:"";
   const room=el("roomFilter")?el("roomFilter").value:"";
 
-  const filtered=tanks.filter(t=>{
+  const displayTanks=markTankConflicts(tanks);
+  const conflictCount=displayTanks.filter(t=>t.__conflict).length;
+
+  const filtered=displayTanks.filter(t=>{
     const haystack=[
       t["Barcode"],t["Tank ID"],t["Gas"],t["Room"],t["Position"],t["Status"],t["Updated By"]
     ].join(" ").toLowerCase();
@@ -398,7 +415,11 @@ function renderResults(){
            (!room||t["Room"]===room);
   });
 
-  if(el("resultsSummary")) el("resultsSummary").textContent=`${filtered.length} tank${filtered.length===1?"":"s"} found`;
+  if(el("resultsSummary")){
+    const conflictText=conflictCount?` - ${conflictCount} conflict${conflictCount===1?"":"s"} need review`:"";
+    el("resultsSummary").textContent=`${filtered.length} tank${filtered.length===1?"":"s"} found${conflictText}`;
+    el("resultsSummary").classList.toggle("has-conflicts",conflictCount>0);
+  }
   el("tankResults").innerHTML=filtered.map(tankCardHtml).join("")||emptyState("No tanks match that search.");
 
   document.querySelectorAll("[data-update-barcode]").forEach(btn=>{
@@ -409,14 +430,18 @@ function renderResults(){
 function tankCardHtml(t){
   const statusClass=statusToClass(t["Status"]);
   return `
-    <article class="tank-card">
+    <article class="tank-card ${t.__conflict?"conflict-card":""}">
       <div class="tank-top">
         <div>
           <div class="tank-title">${escapeHtml(t["Tank ID"]||t["Barcode"]||"No tank ID")}</div>
           <div class="tank-detail"><b>${escapeHtml(t["Gas"]||"Unknown gas")}</b></div>
         </div>
-        <span class="badge ${statusClass}">${escapeHtml(t["Status"]||"Unknown")}</span>
+        <span class="badge ${t.__conflict?"Conflict":statusClass}">${escapeHtml(t.__conflict?"Conflict":(t["Status"]||"Unknown"))}</span>
       </div>
+      ${t.__conflict?`
+        <div class="conflict-warning">
+          Duplicate active rows found for this barcode. Confirm the real status/location in the Google Sheet, then keep one current row.
+        </div>`:""}
       <div class="tank-detail">Room: <b>${escapeHtml(t["Room"]||"Not set")}</b></div>
       <div class="tank-detail">Position: <b>${escapeHtml(t["Position"]||"Not set")}</b></div>
       <div class="tank-detail">Barcode: ${escapeHtml(t["Barcode"]||"")}</div>
@@ -682,7 +707,19 @@ async function saveNewTank(tank,fromScan){
   showToast("Saving new tank...");
 
   try{
-    await api("addTank",{tank});
+    const data=await api("addTank",{tank});
+    if(data.duplicate&&data.tank){
+      const normalized=normBarcode(data.tank["Barcode"]||data.tank["Tank ID"]||tank.Barcode);
+      const index=tanks.findIndex(t=>normBarcode(t["Barcode"])===normalized||normBarcode(t["Tank ID"])===normalized);
+      if(index>=0) tanks[index]=data.tank;
+      else tanks.push(data.tank);
+      populateAllOptions();
+      renderResults();
+      showToast("Tank already exists. Opened existing tank instead.");
+      if(fromScan && el("scanResult")) showFoundTank(data.tank,tank.Barcode);
+      else showView("searchView");
+      return;
+    }
     showToast("New tank added.");
     if(fromScan && el("scanResult")){
       setScanOverlay("saved","SAVED","Ready for the next tank.");

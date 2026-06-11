@@ -89,6 +89,7 @@ input,select{
 .view{display:none}
 .view.active{display:block}
 .summary{color:var(--muted);font-weight:800;padding:8px 4px}
+.summary.has-conflicts{color:#a11043;background:#fff1f3;border:1px solid #f63d68;border-radius:12px;padding:10px 12px}
 .tank-list{display:grid;gap:10px}
 .tank-card{
   background:var(--card);
@@ -97,6 +98,7 @@ input,select{
   padding:14px;
   box-shadow:var(--shadow);
 }
+.tank-card.conflict-card{border-color:#f63d68;background:#fff8fb}
 .tank-top{display:flex;justify-content:space-between;gap:10px}
 .tank-title{font-size:1.2rem;font-weight:900}
 .badge{
@@ -112,6 +114,8 @@ input,select{
 .badge.New{background:#dcfae6;color:#067647}
 .badge.InUse{background:#d1e9ff;color:#175cd3}
 .badge.Empty{background:#fee4e2;color:var(--danger)}
+.badge.Conflict{background:#fff1f3;color:#a11043;border:1px solid #f63d68}
+.conflict-warning{margin:10px 0;padding:10px;border:1px solid #f63d68;border-radius:12px;background:#fff1f3;color:#a11043;font-weight:850}
 .tank-detail{margin:8px 0;color:#344054}
 .date-grid{display:grid;gap:4px;margin-top:8px;font-size:.92rem;color:#475467}
 .status-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}

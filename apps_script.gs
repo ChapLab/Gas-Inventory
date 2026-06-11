@@ -45,8 +45,7 @@ function doGet(e) {
         fastFullUpdate(payload.barcode, payload.tank);
         result = { ok: true };
       } else if (action === "addTank") {
-        fastAddTank(payload.tank);
-        result = { ok: true };
+        result = fastAddTank(payload.tank);
       } else {
         result = { ok: false, error: "Unknown action: " + action };
       }
@@ -134,26 +133,13 @@ function getCurrentTanks() {
   const sheet = getOrCreateSheet(CURRENT_SHEET_NAME);
   const rows = readSheetRows(sheet).filter(row => normalizeBarcode(row["Barcode"]));
 
-  const latestByCode = {};
-  const duplicateRows = [];
-
   rows.forEach((row, idx) => {
     row.__rowNumber = idx + 2;
-    const barcode = normalizeBarcode(row["Barcode"]);
     if (!row["Event ID"]) row["Event ID"] = Utilities.getUuid();
     if (!row["Tank ID"]) row["Tank ID"] = String(row["Barcode"] || "");
-
-    if (!latestByCode[barcode] || eventTime(row) >= eventTime(latestByCode[barcode])) {
-      if (latestByCode[barcode]) duplicateRows.push(latestByCode[barcode].__rowNumber);
-      latestByCode[barcode] = row;
-    } else {
-      duplicateRows.push(row.__rowNumber);
-    }
   });
 
-  if (duplicateRows.length > 0) moveRowsToOverflow(sheet, duplicateRows);
-
-  return Object.values(latestByCode).map(rowToClientObject);
+  return rows.map(rowToClientObject);
 }
 
 function lookupTank(barcode) {
@@ -212,6 +198,14 @@ function fastAddTank(tank) {
   const existingRow = findRowByBarcode(sheet, normalized);
   const now = new Date();
 
+  if (existingRow > 0) {
+    return {
+      ok: true,
+      duplicate: true,
+      tank: rowToClientObject(getRowObject(sheet, existingRow))
+    };
+  }
+
   const rowObj = {
     "Barcode": barcode,
     "Tank ID": barcode,
@@ -225,11 +219,11 @@ function fastAddTank(tank) {
     "Last Modified": now,
     "Updated By": tank["Updated By"] || "",
     "Event ID": Utilities.getUuid(),
-    "Event Type": existingRow > 0 ? "add-replaced-existing" : "add"
+    "Event Type": "add"
   };
 
   sheet.appendRow(rowToArray(rowObj));
-  if (existingRow > 0) moveRowsToOverflow(sheet, [existingRow]);
+  return { ok: true, duplicate: false, tank: rowToClientObject(rowObj) };
 }
 
 function fastStatusUpdate(barcode, status, updatedBy) {
