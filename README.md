@@ -53,3 +53,8 @@ Keep the same Web App URL.
 - Made the scan-in-progress state much more obvious with a full camera overlay that says not to rescan while lookup is running.
 - Polished the scanner UI, status cards, buttons, tabs, and mobile spacing.
 - Updated the checking/found/new/saved/error states so users can tell what happened without relying on the bottom toast.
+
+## v18 fix
+- Widened the barcode scan box so older phones do not need to get as close to fill the target.
+- Request continuous camera focus automatically when the browser exposes it.
+- Changed unsupported tap-focus messaging so users know the browser is handling focus automatically.
