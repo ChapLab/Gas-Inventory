@@ -38,7 +38,7 @@ The active sheet stores the current record for each barcode. Older records are m
 - Local CSV backup download from the browser.
 - Persistent settings for the Apps Script URL and default user initials.
 - Current and overflow sheet model for active records plus historical events.
-- Mobile scanning improvements including buffered reads, wide scan box, visible scan states, and camera focus messaging.
+- Mobile scanning improvements including buffered reads, a smaller scan box for older phones, visible scan states, and camera focus messaging.
 
 ## Repository Structure
 
@@ -229,6 +229,7 @@ Confirm the Apps Script deployment is current, the Web App URL is unchanged, and
 - v18: Widened the scan box and improved camera focus messaging.
 - v19: Existing tanks open immediately from phone-side inventory, with background refresh.
 - v20: Duplicate new-tank saves return the existing tank and active duplicate conflicts are flagged.
+- v21: Reduced the scan box so older phones can read tank barcodes from farther back before autofocus kicks in.
 
 ## License
 
